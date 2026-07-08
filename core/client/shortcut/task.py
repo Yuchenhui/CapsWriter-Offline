@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 from . import logger
 from core.tools.my_status import Status
+from core.client.ui.recording_toast import RecordingToast
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -58,6 +59,9 @@ class ShortcutTask:
         # 录音状态动画
         self._status = Status('开始录音', spinner='point')
 
+        # 录音状态悬浮提示（屏幕浮动条，可通过配置关闭）
+        self._rec_toast = RecordingToast()
+
     @property
     def state(self) -> ClientState:
         """快捷访问状态单例"""
@@ -89,6 +93,7 @@ class ShortcutTask:
 
         # 打印动画：正在录音
         self._status.start()
+        self._rec_toast.start()
 
         # 启动识别任务
         recorder = self._get_recorder()
@@ -104,6 +109,7 @@ class ShortcutTask:
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()
+        self._rec_toast.stop()
 
         self.task.cancel()
         self.task = None
@@ -115,6 +121,7 @@ class ShortcutTask:
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()
+        self._rec_toast.stop()
 
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({

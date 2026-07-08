@@ -42,6 +42,12 @@ class ClientConfig:
 
     save_audio = True           # 是否保存录音文件
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
+
+    show_recording_toast = True  # 录音时是否在屏幕上显示悬浮状态提示（深色胶囊+声波条），松开快捷键即消失
+    recording_toast_margin = 16  # 悬浮胶囊底边距任务栏的像素间距，越小越贴近任务栏
+    recording_toast_opacity = 0.88  # 悬浮胶囊整体不透明度（0.2~1.0），越小越透，背景透出越多
+    recording_toast_sensitivity = 12.0  # 波形对麦克风音量的灵敏度，说话时波形不够跳就调大、太满就调小
+    recording_toast_noise_gate = 0.010  # 噪声门：麦克风音量低于此值视为静音，没说话也在动就调大（如 0.02）
     
     context = ''                # 提示词上下文，用于辅助 Fun-ASR-Nano 模型识别（例如输入人名、地名、专业术语等）
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）

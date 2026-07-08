@@ -78,6 +78,13 @@ class AudioStreamManager:
 
         import asyncio
 
+        # 只读采样：算一下本块的 RMS 电平，喂给悬浮胶囊做真实波形（不影响录音/识别）
+        try:
+            from core.ui.recording_level import set_level
+            set_level(float(np.sqrt(np.mean(np.square(indata)))))
+        except Exception:
+            pass
+
         # 将数据放入队列
         if self.app.loop and self.state.queue_in:
             asyncio.run_coroutine_threadsafe(

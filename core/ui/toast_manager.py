@@ -21,6 +21,7 @@ if __name__ == "__main__":
         sys.path.insert(0, project_root)
     from core.ui.toast_text import ToastWindowText
     from core.ui.toast_label import ToastWindowLabel
+    from core.ui.toast_recording import ToastWindowRecording
     from core.ui.toast_constants import (
         QUEUE_POLL_INTERVAL_MS,
         DEFAULT_DURATION_MS,
@@ -31,6 +32,7 @@ if __name__ == "__main__":
 else:
     from .toast_text import ToastWindowText
     from .toast_label import ToastWindowLabel
+    from .toast_recording import ToastWindowRecording
     from .toast_constants import (
         QUEUE_POLL_INTERVAL_MS,
         DEFAULT_DURATION_MS,
@@ -79,7 +81,7 @@ class ToastMessage:
     initial_width: Union[float, int] = DEFAULT_INITIAL_WIDTH
     initial_height: int = 0
     streaming: bool = False
-    window_type: Literal['text', 'label'] = 'text'
+    window_type: Literal['text', 'label', 'recording'] = 'text'
     stop_callback: Optional[Callable[[], None]] = None
     markdown: bool = False
     editable: bool = False  # Markdown 渲染后是否允许编辑
@@ -169,7 +171,12 @@ class ToastMessageManager:
                 msg_id = getattr(msg, '_id', 'unknown')
 
                 # 根据 window_type 选择窗口类
-                WindowClass = ToastWindowLabel if msg.window_type == 'label' else ToastWindowText
+                if msg.window_type == 'recording':
+                    WindowClass = ToastWindowRecording
+                elif msg.window_type == 'label':
+                    WindowClass = ToastWindowLabel
+                else:
+                    WindowClass = ToastWindowText
 
                 toast_window = WindowClass(
                     self.root,
