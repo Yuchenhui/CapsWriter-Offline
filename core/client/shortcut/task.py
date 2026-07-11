@@ -121,7 +121,8 @@ class ShortcutTask:
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()
-        self._rec_toast.stop()
+        # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭
+        self._rec_toast.processing()
 
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({

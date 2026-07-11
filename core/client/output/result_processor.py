@@ -24,6 +24,7 @@ from core.client.udp.udp_broadcaster import broadcast_output_udp
 from core.tools.zhconv import convert as zhconv_convert
 from core.client.audio.file_manager import AudioFileManager
 from core.client.llm.llm_write_md import write_llm_md
+from core.client.ui.recording_toast import close_active as close_recording_hud
 
 if TYPE_CHECKING:
     from core.client.state import ClientState
@@ -276,7 +277,12 @@ class ResultProcessor:
                 paste=paste,
                 matched_hotwords=potential_hotwords  # 传递上下文热词给 LLM
             )
+            # 统一关闭点:覆盖 LLM 全部出口(透传/报错降级/ESC 取消/空输出),幂等,
+            # 流式路径的首个 chunk 钩子会更早关闭,这里只是兜底
+            close_recording_hud()
         else:
+            # 上屏在即，先撤掉「正在转文字」胶囊（胶囊自带 15s 超时兜底其余路径）
+            close_recording_hud()
             await self.output.output(text, paste=paste)
             self.state.set_output_text(text)
             broadcast_output_udp(text)
@@ -312,6 +318,8 @@ class ResultProcessor:
     
     def _cleanup(self) -> None:
         """清理资源"""
+        # 服务端断连时撤掉可能残留的「转写中」胶囊
+        close_recording_hud()
         if self.state.websocket is not None:
             try:
                 if self.state.websocket.closed:

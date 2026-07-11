@@ -170,39 +170,50 @@ class ToastMessageManager:
                 msg = self.message_queue.get_nowait()
                 msg_id = getattr(msg, '_id', 'unknown')
 
-                # 根据 window_type 选择窗口类
-                if msg.window_type == 'recording':
-                    WindowClass = ToastWindowRecording
-                elif msg.window_type == 'label':
-                    WindowClass = ToastWindowLabel
-                else:
-                    WindowClass = ToastWindowText
+                # 出队即被取消(close_toast 赶在窗口创建前到达):跳过创建,避免孤儿窗口
+                if getattr(msg, '_cancelled', False):
+                    logger.debug(f"消息 {str(msg_id)[:8]} 在创建前已取消，跳过")
+                    msg = None
 
-                toast_window = WindowClass(
-                    self.root,
-                    msg.text,
-                    msg.font_size,
-                    msg.font_family,
-                    msg.bg,
-                    msg.fg,
-                    msg.duration,
-                    msg.initial_width,
-                    msg.initial_height,
-                    streaming=msg.streaming,
-                    stop_callback=msg.stop_callback,
-                    markdown=msg.markdown,
-                    editable=msg.editable
-                )
+                if msg is not None:
+                    # 根据 window_type 选择窗口类
+                    if msg.window_type == 'recording':
+                        WindowClass = ToastWindowRecording
+                    elif msg.window_type == 'label':
+                        WindowClass = ToastWindowLabel
+                    else:
+                        WindowClass = ToastWindowText
 
-                # 保存消息ID到窗口对象
-                toast_window._msg_id = msg_id
-                self.active_windows.append(toast_window)
+                    toast_window = WindowClass(
+                        self.root,
+                        msg.text,
+                        msg.font_size,
+                        msg.font_family,
+                        msg.bg,
+                        msg.fg,
+                        msg.duration,
+                        msg.initial_width,
+                        msg.initial_height,
+                        streaming=msg.streaming,
+                        stop_callback=msg.stop_callback,
+                        markdown=msg.markdown,
+                        editable=msg.editable
+                    )
 
-                # 设置窗口销毁时的回调
-                toast_window.window.bind(
-                    '<Destroy>',
-                    lambda _, w=toast_window: self._remove_window(w)
-                )
+                    # 保存消息ID到窗口对象
+                    toast_window._msg_id = msg_id
+                    self.active_windows.append(toast_window)
+
+                    # 设置窗口销毁时的回调
+                    toast_window.window.bind(
+                        '<Destroy>',
+                        lambda _, w=toast_window: self._remove_window(w)
+                    )
+
+                    # 补投递窗口创建前到达的文本更新(update_toast 赶在创建前时暂存于消息上)
+                    pending = getattr(msg, '_pending_text', None)
+                    if pending is not None:
+                        toast_window.update_text(pending)
 
             # 清理已销毁的窗口
             self.active_windows = [
@@ -244,6 +255,22 @@ class ToastMessageManager:
         self.message_queue.put(msg)
         return msg_id
 
+    def _stash_on_queued(self, msg_id: str, attr: str, value) -> bool:
+        """给仍在队列中(窗口尚未创建)的消息暂存一个属性
+
+        窗口由 Tk 线程按 100ms 轮询异步创建;调用方的 update/close 可能赶在创建之前。
+        暂存后由 _process_queue 在创建时消费(_cancelled 跳过创建,_pending_text 补投递)。
+
+        Returns:
+            True 表示消息还在队列中且已暂存;False 表示队列中没有该消息。
+        """
+        with self.message_queue.mutex:
+            for msg in self.message_queue.queue:
+                if getattr(msg, '_id', None) == msg_id:
+                    setattr(msg, attr, value)
+                    return True
+        return False
+
     def update_toast(self, msg_id: str, new_text: str) -> None:
         """更新指定 ID 的 Toast 文字
 
@@ -255,6 +282,10 @@ class ToastMessageManager:
             if getattr(window, '_msg_id', None) == msg_id:
                 window.update_text(new_text)
                 return
+        # 窗口可能还在队列中未创建:暂存,创建后补投递
+        if self._stash_on_queued(msg_id, '_pending_text', new_text):
+            logger.debug(f"消息 {msg_id[:8]} 窗口未创建，文本更新已暂存")
+            return
         logger.warning(f"未找到消息 ID: {msg_id[:8]}")
 
     def finish_toast(self, msg_id: str) -> None:
@@ -284,6 +315,10 @@ class ToastMessageManager:
                 except (tk.TclError, ValueError):
                     pass
                 return
+        # 窗口可能还在队列中未创建:标记取消,出队时跳过创建,避免孤儿窗口
+        if self._stash_on_queued(msg_id, '_cancelled', True):
+            logger.debug(f"消息 {msg_id[:8]} 窗口未创建，已标记取消")
+            return
         logger.warning(f"未找到消息 ID: {msg_id[:8]}")
 
     async def wait_for_window(self, msg_id: str, timeout: float = 1.0) -> Optional[ToastWindowBase]:

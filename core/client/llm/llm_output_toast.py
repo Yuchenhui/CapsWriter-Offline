@@ -7,6 +7,7 @@ import asyncio
 import logging
 
 from core.client.output.text_output import TextOutput
+from core.client.ui.recording_toast import close_active
 from core.tools.asyncio_to_thread import to_thread
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,9 @@ async def handle_toast_mode(handler, text: str, role_config=None, matched_hotwor
             logger.error("Toast 窗口创建失败")
             if msg_id: toast_manager.close_toast(msg_id)
             return ("", 0, 0.0)
+
+        # LLM 反馈窗口已可见，撤掉「正在转文字」胶囊
+        close_active()
 
         chunks = []
         def stream_toast_chunk(chunk: str):

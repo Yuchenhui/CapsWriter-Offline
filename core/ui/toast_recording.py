@@ -4,6 +4,8 @@
 
 屏幕中下部（贴近任务栏）的深色圆角胶囊，左侧一颗呼吸的 REC 红点 + 文案，
 右侧一组有机跳动的声波条。用于录音期间提示「麦克风正在聆听」，无读秒。
+松开按键后切换为「正在转文字」处理态（骨架短横 + 青白扫光，无 REC 点），
+直到客户端关闭或 15 秒超时自关。
 多显示器时出现在「光标所在的那块屏幕」，而非固定主屏。
 
 设计取向：
@@ -170,6 +172,22 @@ _GAP_TEXT_WAVE = 20
 
 _BOTTOM_MARGIN = 16        # 胶囊底边距任务栏（工作区底部）的像素间距
 
+# 「正在转文字」处理态（松开按键后等待识别结果期间）
+_PROC_LABEL = '正在转文字'
+_PROC_TIMEOUT_MS = 15_000  # 处理态超时自关（毫秒，服务端假死/静默丢结果兜底）
+
+# 处理态动效：骨架文字微光——一行宽窄错落的占位短横（像即将显影的文字），
+# 青白色微光从左向右循环扫过。与聆听态共用 3px 圆头笔触，竖条(声音)→横线(文字)，
+# 不含任何「正在拾音」语义。
+_DASH_WIDTHS = (14, 22, 10, 18)   # 各短横宽度（宽窄错落，模拟一行字的节奏）
+_DASH_GAP = 5                     # 短横间距
+_DASH_W = 3                       # 笔触粗细（与声条一致，圆头）
+_DASH_BASE = '#3f3f4a'            # 骨架底色（暗灰，静候显影）
+_DASH_HI = '#e9fffb'              # 扫光峰值色（青白近白，延续签名青）
+_DASH_SWEEP_SPEED = 3.0           # 扫光速度（像素/帧，~25fps 下一轮约 1.8s）
+_DASH_SIGMA = 26                  # 扫光半径（像素，越大光晕越宽越柔）
+_DASH_SWELL = 1.8                 # 扫光经过时短横加粗量（像素，微呼吸感）
+
 _FRAME_MS = 40             # ~25fps
 _FADE_STEP = 0.16          # 每帧淡入增量
 
@@ -215,6 +233,13 @@ class ToastWindowRecording:
             self._lerp(_WAVE_C1, _WAVE_C2, i / (_BAR_COUNT - 1))
             for i in range(_BAR_COUNT)
         ]
+        # 状态机：listening（聆听）/ processing（转写中）
+        # _mode 可由任意线程写入（update_text），_applied_mode 仅 Tk 线程读改
+        self._mode = 'listening'
+        self._applied_mode = 'listening'
+        self._proc_frames = 0                 # 处理态帧计数（仅驱动扫光动画）
+        self._proc_timeout_ms = _PROC_TIMEOUT_MS
+        self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
 
         self.window = tk.Toplevel(parent_root)
         self.window.overrideredirect(True)
@@ -300,6 +325,28 @@ class ToastWindowRecording:
 
         self._frame += 1
 
+        # 状态切换：update_text 可能从任意线程置 _mode，重绘只在本 Tk 线程做
+        if self._mode != self._applied_mode:
+            self._applied_mode = self._mode
+            self._text = _PROC_LABEL
+            self._proc_frames = 0
+            # 处理态重新布局：无 REC 点，「正在转文字」+ 骨架短横整体居中
+            text_w = self._font.measure(self._text)
+            dash_span = sum(_DASH_WIDTHS) + _DASH_GAP * (len(_DASH_WIDTHS) - 1)
+            total_w = text_w + _GAP_TEXT_WAVE + dash_span
+            self._text_x = (self._w - total_w) / 2
+            self._dash_x0 = self._text_x + text_w + _GAP_TEXT_WAVE
+            self._dash_span = dash_span
+            self.canvas.delete('all')
+            self._draw_static()
+            # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
+            self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
+
+        processing = (self._applied_mode == 'processing')
+
+        if processing:
+            self._proc_frames += 1   # 驱动扫光动画
+
         # 淡入
         if self._alpha < self._target_alpha:
             self._alpha = min(self._target_alpha, self._alpha + _FADE_STEP)
@@ -310,50 +357,69 @@ class ToastWindowRecording:
 
         self.canvas.delete('dyn')
 
-        # 红点呼吸
-        pulse = (math.sin(self._frame * 0.16) + 1) / 2      # 0..1
-        dot_color = self._lerp(_DOT_LO, _DOT_HI, 0.35 + 0.65 * pulse)
-        rr = _DOT_R + pulse * 1.2
-        self.canvas.create_oval(
-            self._dot_cx - rr, self._mid_y - rr,
-            self._dot_cx + rr, self._mid_y + rr,
-            fill=dot_color, outline='', tags='dyn',
-        )
-
-        # 密集声条频谱：白→青渐变，中间高两侧低（env），横向流动（相位 p）
-        p = self._phase0 + self._frame * _WAVE_SPEED
-
-        # 整体响度：优先用真实麦克风电平（平滑：起快落慢），
-        # 拿不到新鲜电平时回退到合成的“说话般”起伏，保证独立运行/测试也有动效
-        raw, fresh = _read_mic_level()
-        if fresh:
-            # 噪声门：减掉底噪，静音时归零，避免没说话也在动
-            eff = raw - self._gate
-            eff = eff if eff > 0.0 else 0.0
-            target = min(1.0, eff * self._gain) ** _LEVEL_GAMMA
-            k = _LEVEL_ATTACK if target > self._level else _LEVEL_DECAY
-            self._level += (target - self._level) * k
-            speech = _LEVEL_FLOOR + (1.0 - _LEVEL_FLOOR) * self._level
-            # 纹理深度随响度：安静时几乎静止，说话时才活跃
-            depth = 0.15 + 0.85 * self._level
-        else:
-            speech = 0.32 + 0.68 * abs(math.sin(p * 0.9))
-            depth = 1.0
-        step = _WAVE_W / _BAR_COUNT
-        for i in range(_BAR_COUNT):
-            t = (i + 0.5) / _BAR_COUNT
-            env = math.sin(math.pi * t)                       # 中间高、两侧低
-            wave = 0.5 + 0.5 * math.sin(t * 11 - p * 3.2) * math.sin(t * 4 + p * 1.6)
-            detail = (1.0 - depth) + depth * wave             # depth 小→趋于静止
-            half = _WAVE_AMP * env * speech * detail
-            if half < _BAR_MIN_H:
-                half = _BAR_MIN_H
-            x = self._wave_x0 + (i + 0.5) * step
-            self.canvas.create_line(
-                x, self._mid_y - half, x, self._mid_y + half,
-                width=_BAR_W, fill=self._wave_colors[i],
-                capstyle=tk.ROUND, tags='dyn',
+        # REC 红点呼吸——仅聆听态；处理态不保留任何「正在拾音」语义的元素
+        if not processing:
+            pulse = (math.sin(self._frame * 0.16) + 1) / 2      # 0..1
+            dot_color = self._lerp(_DOT_LO, _DOT_HI, 0.35 + 0.65 * pulse)
+            rr = _DOT_R + pulse * 1.2
+            self.canvas.create_oval(
+                self._dot_cx - rr, self._mid_y - rr,
+                self._dot_cx + rr, self._mid_y + rr,
+                fill=dot_color, outline='', tags='dyn',
             )
+
+        # 动效区：处理态 = 骨架文字微光（占位短横 + 循环扫光，像文字即将显影）；
+        #         聆听态 = 密集声条频谱（白→青渐变，中间高两侧低，横向流动）
+        if processing:
+            # 扫光位置在 [-σ, span+σ] 循环，出场入场都有淡出余量
+            cycle = self._dash_span + 2 * _DASH_SIGMA
+            sweep = (self._proc_frames * _DASH_SWEEP_SPEED) % cycle - _DASH_SIGMA
+            x = self._dash_x0
+            for w in _DASH_WIDTHS:
+                # 短横中心的「扫光轨道」相对坐标（sweep 是相对 dash_x0 的 0~span）
+                rel_cx = x - self._dash_x0 + w / 2
+                # 距扫光中心越近越亮（三角衰减再 1.5 次方，光晕柔和）
+                k = max(0.0, 1.0 - abs(rel_cx - sweep) / _DASH_SIGMA) ** 1.5
+                color = self._lerp(_DASH_BASE, _DASH_HI, k)
+                self.canvas.create_line(
+                    x, self._mid_y, x + w, self._mid_y,
+                    width=_DASH_W + _DASH_SWELL * k, fill=color,
+                    capstyle=tk.ROUND, tags='dyn',
+                )
+                x += w + _DASH_GAP
+        else:
+            p = self._phase0 + self._frame * _WAVE_SPEED
+            # 整体响度：优先真实麦克风电平（平滑：起快落慢），
+            # 拿不到新鲜电平时回退到合成的“说话般”起伏
+            raw, fresh = _read_mic_level()
+            if fresh:
+                # 噪声门：减掉底噪，静音时归零，避免没说话也在动
+                eff = raw - self._gate
+                eff = eff if eff > 0.0 else 0.0
+                target = min(1.0, eff * self._gain) ** _LEVEL_GAMMA
+                k = _LEVEL_ATTACK if target > self._level else _LEVEL_DECAY
+                self._level += (target - self._level) * k
+                speech = _LEVEL_FLOOR + (1.0 - _LEVEL_FLOOR) * self._level
+                # 纹理深度随响度：安静时几乎静止，说话时才活跃
+                depth = 0.15 + 0.85 * self._level
+            else:
+                speech = 0.32 + 0.68 * abs(math.sin(p * 0.9))
+                depth = 1.0
+            step = _WAVE_W / _BAR_COUNT
+            for i in range(_BAR_COUNT):
+                t = (i + 0.5) / _BAR_COUNT
+                env = math.sin(math.pi * t)                       # 中间高、两侧低
+                wave = 0.5 + 0.5 * math.sin(t * 11 - p * 3.2) * math.sin(t * 4 + p * 1.6)
+                detail = (1.0 - depth) + depth * wave             # depth 小→趋于静止
+                half = _WAVE_AMP * env * speech * detail
+                if half < _BAR_MIN_H:
+                    half = _BAR_MIN_H
+                x = self._wave_x0 + (i + 0.5) * step
+                self.canvas.create_line(
+                    x, self._mid_y - half, x, self._mid_y + half,
+                    width=_BAR_W, fill=self._wave_colors[i],
+                    capstyle=tk.ROUND, tags='dyn',
+                )
 
         self._after_id = self.window.after(_FRAME_MS, self._tick)
 
@@ -367,9 +433,37 @@ class ToastWindowRecording:
         r = tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
         return f'#{r[0]:02x}{r[1]:02x}{r[2]:02x}'
 
-    # 供 ToastMessageManager 兼容调用（本指示器不涉及文本流式更新）
-    def update_text(self, new_text: str) -> None:  # pragma: no cover - 兼容占位
-        pass
+    def _on_proc_timeout(self) -> None:
+        """处理态超时自毁（服务端假死/静默丢结果的兜底）
+
+        由进入处理态时的一次性 window.after 触发。窗口若已正常关闭则跳过，
+        避免误动持有者后续新建的胶囊。
+        """
+        try:
+            if not self.window.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        # 自毁前通知持有者回收注册状态，避免 stale 引用
+        if self._stop_callback is not None:
+            try:
+                self._stop_callback()
+            except Exception:
+                pass
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
+
+    # 状态切换入口：ToastMessageManager.update_toast 会在调用方线程直接转发到这里
+    def update_text(self, new_text: str) -> None:
+        """任意文本更新即切换到「正在转文字」处理态
+
+        本窗口唯一的更新语义就是状态切换（展示文案由窗口自持的 _PROC_LABEL 决定，
+        与传入内容解耦——避免文案微调静默破坏状态机）。
+        可能由非 Tk 线程调用，因此只做原子赋值，重绘在 Tk 线程 _tick 中完成。
+        """
+        self._mode = 'processing'
 
     def set_text(self, new_text: str) -> None:     # pragma: no cover - 兼容占位
         pass

@@ -12,6 +12,7 @@ from config_client import ClientConfig as Config
 from core.tools.asyncio_to_thread import to_thread
 from core.client.output.text_output import TextOutput
 from core.client.clipboard import paste_text
+from core.client.ui.recording_toast import close_active
 from . import logger
 
 
@@ -64,6 +65,10 @@ async def _process_streaming(handler, role_config, content, matched_hotwords) ->
     def stream_write_chunk(chunk: str):
         nonlocal pending_buffer
         if not chunk: return
+        if not chunks:
+            # 首个 chunk：可见输出开始，撤掉「正在转文字」胶囊
+            # （此回调运行在 to_thread 工作线程，close_active 线程安全）
+            close_active()
         chunks.append(chunk)
 
         full_current = pending_buffer + chunk

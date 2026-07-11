@@ -172,8 +172,10 @@ logs/
 .agent
 
 diag*.py
-test_*.py 
-test_*.ipynb 
+test_*.py
+# tests/ 目录下的正式单元测试不受上一条草稿规则影响
+!tests/test_*.py
+test_*.ipynb
 test_*.md 
 test_*.txt
 stocks.txt 
