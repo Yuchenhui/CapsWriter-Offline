@@ -119,10 +119,11 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
 
         self.is_recording = False
-        self.state.stop_recording()
+        duration = self.state.stop_recording()
         self._status.stop()
         # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭
-        self._rec_toast.processing()
+        # 传录音时长供胶囊按比例放宽超时兜底（转录时延与录音时长成正比）
+        self._rec_toast.processing(duration)
 
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({

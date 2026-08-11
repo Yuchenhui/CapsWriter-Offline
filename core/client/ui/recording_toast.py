@@ -92,17 +92,23 @@ class RecordingToast:
             self._manager = None
             self._msg_id = None
 
-    def processing(self) -> None:
+    def processing(self, duration: float = 0.0) -> None:
         """切换到「正在转文字」处理态（未显示则忽略，保持注册以便后续 close_active）
 
-        recording 窗口对任意 update_toast 文本都解释为状态切换（展示文案由窗口自持），
-        这里传的字符串只是占位信号。
+        recording 窗口对任意 update_toast 文本都解释为状态切换（展示文案由窗口自持）。
+        字符串携带按录音时长缩放的超时毫秒（'processing:<ms>'）：转录时延与录音
+        时长成正比（实测约 0.5 倍实时），固定 15s 兜底会在长录音的识别结果到达前
+        误杀胶囊，故按 0.8×时长+10s 放宽；窗口端保证不低于默认 15s。
+
+        Args:
+            duration: 本次录音时长（秒），0 表示未知（超时保持默认）。
         """
         if self._msg_id is None or self._manager is None:
             return
         try:
-            self._manager.update_toast(self._msg_id, 'processing')
-            logger.debug('录音悬浮提示已切换为正在转文字')
+            timeout_ms = int(duration * 800) + 10_000
+            self._manager.update_toast(self._msg_id, f'processing:{timeout_ms}')
+            logger.debug(f'录音悬浮提示已切换为正在转文字 (超时兜底 {timeout_ms}ms)')
         except Exception as e:
             logger.error(f'切换转写状态失败: {e}', exc_info=True)
 

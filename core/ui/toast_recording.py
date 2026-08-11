@@ -461,8 +461,16 @@ class ToastWindowRecording:
 
         本窗口唯一的更新语义就是状态切换（展示文案由窗口自持的 _PROC_LABEL 决定，
         与传入内容解耦——避免文案微调静默破坏状态机）。
-        可能由非 Tk 线程调用，因此只做原子赋值，重绘在 Tk 线程 _tick 中完成。
+        内容可携带可选的超时毫秒（'processing:<ms>'）：长录音的转录时延与录音时长
+        成正比，固定 15s 会在结果到达前误杀胶囊；取 max 保证不低于默认值，
+        解析失败则保持默认。
+        可能由非 Tk 线程调用，因此只做原子赋值（先超时后模式，_tick 察觉模式
+        切换时超时值已就绪），重绘在 Tk 线程 _tick 中完成。
         """
+        try:
+            self._proc_timeout_ms = max(_PROC_TIMEOUT_MS, int(new_text.split(':', 1)[1]))
+        except (IndexError, ValueError):
+            pass
         self._mode = 'processing'
 
     def set_text(self, new_text: str) -> None:     # pragma: no cover - 兼容占位
