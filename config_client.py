@@ -40,7 +40,7 @@ class ClientConfig:
 
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
 
-    save_audio = True           # 是否保存录音文件
+    save_audio = False          # 是否保存录音文件 (关: 每句一个 WAV, 越积越多)
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
 
     # 录音胶囊 (移植自 rockbenben/CapsWriter-Offline 09eb846/d5380b6/ca8b1ca)
@@ -50,7 +50,7 @@ class ClientConfig:
     recording_toast_sensitivity = 12.0  # 波形灵敏度，不够跳调大、太满调小
     recording_toast_noise_gate = 0.010  # 噪声门，没说话也在动就调大 (如 0.02)
     
-    context = 'WSL, Debian, PostgreSQL, MySQL, Redis, Docker, Kubernetes, VS Code, Claude Code, CapsWriter, Qwen3, DeepSeek, MiniMax, SenseVoice, AutoHotkey, rockbenben, GitHub, PowerShell, Client, Server'  # 只对 Qwen3-ASR / Fun-ASR-Nano 生效 (SenseVoice 不读); 与 config_server.polish_terms 保持一致
+    context = ''                # 兜底; 实际取安装目录 terms.txt (只对 Qwen3-ASR / Fun-ASR-Nano 生效)
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）
 
     trash_punc = '，。,.'       # 识别结果要消除的末尾标点
@@ -75,7 +75,7 @@ class ClientConfig:
     auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
 
     # 日志配置
-    log_level = 'DEBUG'          # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    log_level = 'INFO'          # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
 
     mic_seg_duration = 60       # 麦克风听写时分段长度：60秒
     mic_seg_overlap = 4         # 麦克风听写时分段重叠：4秒

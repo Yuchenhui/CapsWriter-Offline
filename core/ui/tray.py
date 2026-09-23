@@ -276,7 +276,8 @@ class _TraySystem:
                 cmd = sys.argv
             else:
                 cmd = [sys.executable] + sys.argv
-            subprocess.Popen(cmd)
+            # 本地改: 无窗口启动新进程. 默认终端是 Windows Terminal 时 SW_HIDE 会被忽略, 只有 CREATE_NO_WINDOW 靠得住
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
         except Exception as e:
             logger.error(f"重启失败: {e}")
             return

@@ -17,6 +17,7 @@ import numpy as np
 import websockets
 
 from config_client import ClientConfig as Config
+from core.tools.terms import load_terms
 from core.client.state import console
 from core.client.audio.file_manager import AudioFileManager
 from core.client.connection import WebSocketManager
@@ -146,7 +147,7 @@ class AudioRecorder:
                         time_start=self._start_time,
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
-                        context=Config.context,
+                        context=load_terms() or Config.context,
                         polish=Config.polish,
                         language=Config.language,
                     )
@@ -172,7 +173,7 @@ class AudioRecorder:
                             time_start=self._start_time,
                             seg_duration=Config.mic_seg_duration,
                             seg_overlap=Config.mic_seg_overlap,
-                            context=Config.context,
+                            context=load_terms() or Config.context,
                             polish=Config.polish,
                             language=Config.language,
                         )
@@ -196,7 +197,7 @@ class AudioRecorder:
                         time_start=self._start_time,
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
-                        context=Config.context,
+                        context=load_terms() or Config.context,
                         polish=Config.polish,
                         language=Config.language,
                     )

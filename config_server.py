@@ -14,9 +14,9 @@ class ServerConfig:
     port = '6016'
 
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
-    model_type = 'sensevoice'  # 2026-09-23 试小模型; 回退 Qwen3 1.7B 改回 'qwen_asr'
+    model_type = 'qwen_asr'  # 托盘「模型」可切换; sensevoice 更快更省显存, qwen_asr 更准
 
-    format_num = True       # 输出时是否将中文数字转为阿拉伯数字
+    format_num = False      # 关: 规则转换分不清语境 ("二次整理"->"2次整理", "千万三"->"10003000")
     format_spell = True     # 输出时是否调整中英之间的空格
 
     # 二次整理: 在线 LLM 只修听错的术语/同音字/标点 (core/server/worker/polish.py); 客户端托盘可随时开关
@@ -26,13 +26,13 @@ class ServerConfig:
     polish_api_key_env = 'DEEPSEEK_API_KEY'   # key 只从环境变量读, 不写进仓库
     polish_timeout = 3.0        # 秒; 超时/断网直接用原文
     polish_max_change = 0.2     # 改动比例超过此值视为改过头, 退回原文
-    polish_terms = 'WSL, Debian, PostgreSQL, MySQL, Redis, Docker, Kubernetes, VS Code, Claude Code, CapsWriter, Qwen3, DeepSeek, MiniMax, SenseVoice, AutoHotkey, rockbenben, GitHub, PowerShell, Client, Server'
+    # 术语表在安装目录 terms.txt (与客户端识别 context 共用, 保存即生效)
 
     enable_tray = False       # 由客户端托管时不需要自己的托盘图标 (独立运行服务端时改回 True)
     hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
 
     # 日志配置
-    log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    log_level = 'INFO'         # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
     aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）

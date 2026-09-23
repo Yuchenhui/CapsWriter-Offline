@@ -1,0 +1,23 @@
+# 术语表: 一行一个词, 保存即生效 (不用重启)
+# 用途: ① Qwen3-ASR 识别时的提示 (context)  ② 二次整理时按读音对照纠正
+# 常被听错的词加进来; 普通英文单词也可以加 (避免被往表里别的词上靠, 如 Client 被改成 Claude)
+WSL
+Debian
+PostgreSQL
+MySQL
+Redis
+Docker
+Kubernetes
+VS Code
+Claude Code
+CapsWriter
+Qwen3
+DeepSeek
+MiniMax
+SenseVoice
+AutoHotkey
+rockbenben
+GitHub
+PowerShell
+Client
+Server

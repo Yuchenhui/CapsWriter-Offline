@@ -17,6 +17,7 @@ import time
 import urllib.request
 
 from config_server import ServerConfig as Config
+from core.tools.terms import load_terms
 from . import logger
 
 _SYSTEM = """你是语音识别（ASR）结果的校对器。输入是一句由语音自动转写的文字，错误来自"听错"，不是"写错"。
@@ -55,7 +56,7 @@ def _call_api(text: str) -> str:
     body = {
         'model': Config.polish_model,
         'messages': [
-            {'role': 'system', 'content': _SYSTEM.format(terms=Config.polish_terms or '无')},
+            {'role': 'system', 'content': _SYSTEM.format(terms=load_terms() or getattr(Config, 'polish_terms', '') or '无')},
             {'role': 'user', 'content': text},
         ],
         'max_tokens': len(text) * 2 + 64,

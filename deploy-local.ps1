@@ -15,7 +15,7 @@ robocopy "$src\core" "$InstallDir\core" *.py /S /NJH /NJS /NDL /NP | Out-Host
 if ($LASTEXITCODE -ge 8) { throw "robocopy core 失败: $LASTEXITCODE" }
 robocopy "$src\LLM" "$InstallDir\LLM" *.py /NJH /NJS /NDL /NP | Out-Host
 if ($LASTEXITCODE -ge 8) { throw "robocopy LLM 失败: $LASTEXITCODE" }
-foreach ($f in 'config_client.py', 'config_server.py', 'hot.txt', 'hot-rule.txt', 'hot-server.txt') {
+foreach ($f in 'config_client.py', 'config_server.py', 'hot.txt', 'hot-rule.txt', 'hot-server.txt', 'start-hidden.vbs', 'terms.txt') {
     Copy-Item "$src\$f" "$InstallDir\$f" -Force
 }
 $global:LASTEXITCODE = 0
@@ -27,7 +27,8 @@ $skip = @(Get-Content $log -EA SilentlyContinue).Count
 Get-Process start_server, start_client -EA SilentlyContinue | Stop-Process -Force -Confirm:$false
 Start-Sleep 2
 # 只启动客户端: 它会隐藏拉起服务端 (core/client/server_launcher.py)
-Start-Process "$InstallDir\start_client.exe" -WorkingDirectory $InstallDir -WindowStyle Hidden
+# conhost --headless: 默认终端是 Windows Terminal 时 -WindowStyle Hidden 不管用
+Start-Process "$env:WINDIR\System32\conhost.exe" -ArgumentList '--headless', "`"$InstallDir\start_client.exe`"" -WorkingDirectory $InstallDir -WindowStyle Hidden
 foreach ($i in 1..60) {
     if (@(Get-Content $log -EA SilentlyContinue | Select-Object -Skip $skip) -match 'TaskHandler 开始工作循环') { break }
     Start-Sleep 1
