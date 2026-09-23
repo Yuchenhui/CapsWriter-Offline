@@ -1,5 +1,11 @@
 # CapsWriter-Offline
 
+> [!NOTE]
+> 这是个人 fork，改动都在 **`marshall`** 分支上，基于官方 [HaujetZhao/CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline)。
+> 录音悬浮胶囊（声波条和"转文字"处理态）移植自 [rockbenben/CapsWriter-Offline](https://github.com/rockbenben/CapsWriter-Offline) 的 `feature/recording-toast-hud` 分支，
+> 保留了原作者的 commit 署名（`65cd048` `a42df91` `9492d4a`）。在此基础上，本分支去掉了胶囊里的文案和红点，改成仿玻璃外观，并调整了本机的默认配置。
+> 部署到本机：`pwsh -File deploy-local.ps1`
+
 ![demo](assets/demo.png)
 
 > **按住 CapsLock 说话，松开就上屏。就这么简单。**
