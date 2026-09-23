@@ -184,6 +184,9 @@ class AudioRecorder:
                         logger.info(f"本句音量: 平均 {_db((self._sumsq / self._nsamp) ** 0.5):.1f} dBFS, "
                                     f"峰值 {_db(self._peak):.1f} dBFS, 底噪 {_noise:.1f} dBFS, 说话 {_voice:.1f} dBFS, "
                                     f"信噪比 {_voice - _noise:.0f} dB, 任务ID: {self.task_id}")
+                        self.state.last_level = {'avg': round(float(_db((self._sumsq / self._nsamp) ** 0.5)), 1),
+                                                 'peak': round(float(_db(self._peak)), 1), 'noise': round(_noise, 1),
+                                                 'voice': round(_voice, 1), 'snr': round(_voice - _noise, 1)}
                     # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
                     # 实测 2026-09-23: 没说话时 Qwen3 会把术语表 (context) 念成一段"识别结果" (平均 -53.5 / -50.1 dBFS)
                     _gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
@@ -192,6 +195,8 @@ class AudioRecorder:
                     if self._duration == 0.0 and is_silence(_rms, self._blk_db, _gate):
                         logger.info(f"判定没说话 (平均 {20 * np.log10(max(_rms, 1e-6)):.1f} dBFS < 门限, 信噪比也低), 不送识别, 任务ID: {self.task_id}")
                         console.print('    录音太安静, 未识别')
+                        from core.client import calibration
+                        calibration.on_silence()
                         self._cache.clear()
                         if Config.save_audio and self._file_manager:
                             self._file_manager.finish()

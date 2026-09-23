@@ -43,6 +43,7 @@ class TrayManager:
                 ('剪贴板 → 术语表', self._add_term_from_clipboard),
                 ('二次整理', 'submenu', self._polish_items),
                 ('麦克风', 'submenu', self._mic_items),
+                ('麦克风校准…', self._start_calibration),
                 ('模型', 'submenu', self._model_items),
                 ('词库', 'submenu', self._wordlist_items),
             ]
@@ -172,6 +173,11 @@ class TrayManager:
         if text:
             from ..llm.llm_clipboard import copy_to_clipboard
             copy_to_clipboard(text)
+
+    def _start_calibration(self):
+        """读几句校准文本, 自动设当前麦克风的增益 (core/client/calibration.py)"""
+        from core.client import calibration
+        calibration.start(self.app)
 
     def _add_term_from_clipboard(self):
         """把剪贴板里的词加进 terms.txt (识别时作上下文 + 二次整理词表, 保存即生效). 用法: 选中正确的词 Ctrl+C, 点这里"""

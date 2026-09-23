@@ -193,6 +193,10 @@ class ResultProcessor:
         if message.is_final:
             logger.info(f"收到最终识别结果 ({len(text)} 字), 时延: {delay:.2f}s")
             logger.debug(f"识别结果全文: {text}")
+            from core.client import calibration   # 本地改: 麦克风校准中, 结果只用来打分, 不粘贴
+            if calibration.on_result(original_text):
+                close_recording_hud()
+                return
         else:
             logger.debug(
                 f"接收到识别结果，文本: {text[:50]}{'...' if len(text) > 50 else ''}, "
