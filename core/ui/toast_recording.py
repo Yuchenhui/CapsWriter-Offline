@@ -154,6 +154,11 @@ _BAR_MIN_H = 2             # 静止时的最小半高，避免消失
 _WAVE_PALETTE = ('#35e0d0', '#4aa8ff', '#9b7bff', '#ff7eb6')   # 青 -> 蓝 -> 紫 -> 粉 -> (回到青)
 _WAVE_SPAN = 0.6           # 一排声条覆盖色带的比例 (越小相邻声条颜色越接近)
 _WAVE_FLOW = 0.006         # 色带每帧流动量 (~25fps 下约 7 秒转一圈)
+_DOT_MIN = 2.5            # 转写中: 暗点直径 (像素)
+_DOT_MAX = 6.0            # 转写中: 光点处直径
+_DOT_DIM = '#4a5163'      # 转写中: 暗点颜色
+_DOT_SPEED = 0.45         # 光点移动速度 (点/帧, ~25fps 下约 1.6 秒扫一遍)
+_DOT_TAIL = 2.2           # 光点光晕宽度 (点数, 越大拖尾越长)
 
 # 真实电平驱动（拿不到实时电平时回退到合成动画）
 _LEVEL_GATE = 0.010        # 噪声门：RMS 低于此值视为静音（减掉底噪，避免没说话也在动）
@@ -176,17 +181,6 @@ _BOTTOM_MARGIN = 16        # 胶囊底边距任务栏（工作区底部）的像
 _PROC_LABEL = ''   # 本地改: 不要中文文案, 只留扫光短横当 loading
 _PROC_TIMEOUT_MS = 15_000  # 处理态超时自关（毫秒，服务端假死/静默丢结果兜底）
 
-# 处理态动效：骨架文字微光——一行宽窄错落的占位短横（像即将显影的文字），
-# 青白色微光从左向右循环扫过。与聆听态共用 3px 圆头笔触，竖条(声音)→横线(文字)，
-# 不含任何「正在拾音」语义。
-_DASH_WIDTHS = (14, 22, 10, 18)   # 各短横宽度（宽窄错落，模拟一行字的节奏）
-_DASH_GAP = 5                     # 短横间距
-_DASH_W = 3                       # 笔触粗细（与声条一致，圆头）
-_DASH_BASE = '#3f3f4a'            # 骨架底色（暗灰，静候显影）
-_DASH_HI = '#e9fffb'              # 扫光峰值色（青白近白，延续签名青）
-_DASH_SWEEP_SPEED = 3.0           # 扫光速度（像素/帧，~25fps 下一轮约 1.8s）
-_DASH_SIGMA = 26                  # 扫光半径（像素，越大光晕越宽越柔）
-_DASH_SWELL = 1.8                 # 扫光经过时短横加粗量（像素，微呼吸感）
 
 _FRAME_MS = 40             # ~25fps
 _FADE_STEP = 0.16          # 每帧淡入增量
@@ -355,14 +349,7 @@ class ToastWindowRecording:
             self._applied_mode = self._mode
             self._text = _PROC_LABEL
             self._proc_frames = 0
-            # 处理态重新布局：无 REC 点，「正在转文字」+ 骨架短横整体居中
-            text_w = self._font.measure(self._text)
-            dash_span = sum(_DASH_WIDTHS) + _DASH_GAP * (len(_DASH_WIDTHS) - 1)
-            gap = _GAP_TEXT_WAVE if text_w else 0
-            total_w = text_w + gap + dash_span
-            self._text_x = (self._w - total_w) / 2
-            self._dash_x0 = self._text_x + text_w + gap
-            self._dash_span = dash_span
+            # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
             if self._ulw is None:
                 self.canvas.delete('all')
                 self._draw_static()
@@ -388,18 +375,17 @@ class ToastWindowRecording:
         # 动效区：处理态 = 骨架文字微光（占位短横 + 循环扫光，像文字即将显影）；
         #         聆听态 = 密集声条频谱（白→青渐变，中间高两侧低，横向流动）
         if processing:
-            # 扫光位置在 [-σ, span+σ] 循环，出场入场都有淡出余量
-            cycle = self._dash_span + 2 * _DASH_SIGMA
-            sweep = (self._proc_frames * _DASH_SWEEP_SPEED) % cycle - _DASH_SIGMA
-            x = self._dash_x0
-            for w in _DASH_WIDTHS:
-                # 短横中心的「扫光轨道」相对坐标（sweep 是相对 dash_x0 的 0~span）
-                rel_cx = x - self._dash_x0 + w / 2
-                # 距扫光中心越近越亮（三角衰减再 1.5 次方，光晕柔和）
-                k = max(0.0, 1.0 - abs(rel_cx - sweep) / _DASH_SIGMA) ** 1.5
-                color = self._lerp(_DASH_BASE, _DASH_HI, k)
-                prims.append((x, self._mid_y, x + w, self._mid_y, _DASH_W + _DASH_SWELL * k, color))
-                x += w + _DASH_GAP
+            # 本地改: 转写中 = 竖条收成一排小圆点, 一个"光点"从左往右扫过:
+            # 被扫到的圆点变大、变亮、带流动色, 其余是暗小点 —— 与聆听态的跳动竖条一眼可分
+            step = _WAVE_W / _BAR_COUNT
+            span = _BAR_COUNT + 2 * _DOT_TAIL                      # 光点从左侧外进、右侧外出
+            head = (self._proc_frames * _DOT_SPEED) % span - _DOT_TAIL
+            for i in range(_BAR_COUNT):
+                k = math.exp(-((i - head) / _DOT_TAIL) ** 2)       # 离光点越近越接近 1
+                d = _DOT_MIN + (_DOT_MAX - _DOT_MIN) * k            # 圆点直径
+                lit = self._palette_at(i / (_BAR_COUNT - 1) * _WAVE_SPAN - self._frame * _WAVE_FLOW * 2)
+                x = self._wave_x0 + (i + 0.5) * step
+                prims.append((x, self._mid_y, x, self._mid_y, d, self._lerp(_DOT_DIM, lit, k)))
         else:
             p = self._phase0 + self._frame * _WAVE_SPEED
             # 整体响度：优先真实麦克风电平（平滑：起快落慢），
