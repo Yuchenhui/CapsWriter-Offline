@@ -10,7 +10,7 @@ import logging
 import threading
 from ctypes import wintypes
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 _INTERVAL = 2.0
 _stop = threading.Event()

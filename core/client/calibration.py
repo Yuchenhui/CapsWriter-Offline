@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 # (提示, 要读的句子). 覆盖: 日常 / 英文术语 / 同音字 / 数字 / 最大声 (定峰值余量) / 最小声 (看是否被门限丢)
 SENTENCES = [
@@ -71,13 +71,13 @@ def active() -> bool:
 
 
 def _show(text: str) -> None:
+    """普通提示框不支持改字 (update_text 只对流式有效): 关掉旧框再开新框"""
     from core.ui.toast_manager import ToastMessageManager, ToastMessage
-    m = ToastMessageManager()
-    if _s.toast_id is None:
-        _s.toast_id = m.add_message(ToastMessage(text=text, font_size=15, bg='#1E3A5F', fg='white', duration=30 * 60 * 1000,
-                                                 initial_width=0.5, initial_height=0, streaming=False, window_type='text', markdown=False))
-    else:
-        m.update_toast(_s.toast_id, text)
+    if _s.toast_id is not None:
+        _close()
+    _s.toast_id = ToastMessageManager().add_message(ToastMessage(
+        text=text, font_size=15, bg='#1E3A5F', fg='white', duration=30 * 60 * 1000,
+        initial_width=0.5, initial_height=0, streaming=False, window_type='text', markdown=False))
 
 
 def _close() -> None:
@@ -96,18 +96,26 @@ def _summary(text: str) -> None:
     toast(text, duration=20000, bg='#1B7F3B')
 
 
-def _prompt() -> None:
+def _prompt(last: str = '') -> None:
     hint, sent = SENTENCES[_s.idx]
-    _show(f'麦克风校准 {_s.idx + 1}/{len(SENTENCES)} · {_s.dev_name}\n按住右 Alt，{hint}：\n\n{sent}\n\n(校准期间不会粘贴; 当前增益 {_s.gain:+g} dB)')
+    head = f'上一句识别为：{last}\n\n' if last else ''
+    _show(f'{head}麦克风校准 {_s.idx + 1}/{len(SENTENCES)} · {_s.dev_name}\n按住右 Alt，{hint}：\n\n{sent}\n\n'
+          f'(校准期间不会粘贴; 当前增益 {_s.gain:+g} dB; 再点一次托盘「麦克风校准…」取消)')
 
 
 def start(app) -> None:
-    """托盘调用. 已在校准中则重新开始"""
+    """托盘调用. 已在校准中 = 取消"""
     global _s
     from config_client import ClientConfig as Config
     from core.client.audio import mic_select
     from core.client.audio.default_device_watch import default_capture_id
     with _lock:
+        if _s is not None:
+            logger.info('麦克风校准已取消 (再次点击)')
+            _close()
+            _summary('麦克风校准已取消 (增益未改, 恢复正常口述)')
+            _end()
+            return
         devs = mic_select.list_capture()
         cur = default_capture_id()
         dev = next((d for d in devs if d[0] == cur), None)
@@ -116,8 +124,7 @@ def start(app) -> None:
             from core.client.ui import toast
             toast('读不到当前麦克风或它的增益, 无法校准', duration=3500)
             return
-        saved = _s.saved_polish if _s else Config.polish
-        _s = _Session(app, cur, dev[1], gi, saved)
+        _s = _Session(app, cur, dev[1], gi, Config.polish)
         Config.polish = ''   # 量原始识别效果; 结束时恢复 (不写 user_state)
         logger.info(f'麦克风校准开始: {dev[1]}, 增益 {gi[0]:+g} dB')
         _prompt()
@@ -171,7 +178,7 @@ def on_result(text: str) -> bool:
         _s.idx += 1
         _s.deadline = time.time() + TIMEOUT_SEC
         if _s.idx < len(SENTENCES):
-            _prompt()
+            _prompt(text)
         else:
             _finish()
         return True

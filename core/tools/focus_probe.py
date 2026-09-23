@@ -8,7 +8,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _Timeout
 from ctypes import wintypes
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 _CLSID_CUIAutomation = 'ff48dba4-60ef-4201-aa87-54103eef594e'
 _IID_IUIAutomation = '30cbe57d-d9d0-452a-ab13-7ac5ac4825ee'

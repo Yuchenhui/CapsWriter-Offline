@@ -11,7 +11,7 @@ from ctypes import wintypes
 
 from .default_device_watch import _GUID, _vcall, _CLSID_MMDeviceEnumerator, _IID_IMMDeviceEnumerator, CLSCTX_ALL
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 eCapture, DEVICE_STATE_ACTIVE = 1, 1
 _IID_IAudioEndpointVolume = _GUID('5CDF2C82-841E-4546-9722-0CF74078229A')

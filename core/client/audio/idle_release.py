@@ -9,7 +9,7 @@ import threading
 
 from config_client import ClientConfig as Config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 _timer = None
 _lock = threading.Lock()
