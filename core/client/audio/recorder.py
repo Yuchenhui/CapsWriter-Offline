@@ -106,6 +106,9 @@ class AudioRecorder:
             self._duration = 0.0
             self._cache = []
             self._sumsq, self._nsamp, self._peak = 0.0, 0, 0.0   # 诊断: 本句音量
+            self._blk_db = []   # 每 50ms 块的电平, 算底噪 / 信噪比
+            from core.client.audio.decimate import Decimator3
+            self._dec = Decimator3()   # 本地改: 抗混叠降采样, 每段录音一个实例 (跨块保留滤波状态)
             
             # 音频文件管理
             file_path = None
@@ -127,6 +130,7 @@ class AudioRecorder:
                         self._sumsq += float(np.sum(np.square(_d, dtype=np.float64)))
                         self._nsamp += int(_d.size)
                         self._peak = max(self._peak, float(np.max(np.abs(_d))))
+                        self._blk_db.append(10 * np.log10(float(np.mean(np.square(_d, dtype=np.float64))) + 1e-12))
                     # 在阈值之前积攒音频数据 (本地改 F6: 开了静音门限时多攒到 silence_gate_hold 秒, 松开时整句判断)
                     _hold = Config.silence_gate_hold if getattr(Config, 'silence_rms_gate', 0) else 0
                     if task['time'] - self._start_time < max(Config.threshold, _hold):
@@ -159,7 +163,7 @@ class AudioRecorder:
                         task_id=self.task_id,
                         source='mic',
                         data=base64.b64encode(
-                            np.mean(data[::3], axis=1).tobytes()
+                            self._dec.process(data).tobytes()
                         ).decode('utf-8'),
                         is_final=False,
                         time_start=self._start_time,
@@ -175,8 +179,10 @@ class AudioRecorder:
                 elif task['type'] == 'finish':
                     if self._nsamp:
                         _db = lambda v: 20 * np.log10(v) if v > 0 else -120.0
+                        _noise, _voice = (np.percentile(self._blk_db, 10), np.percentile(self._blk_db, 90)) if self._blk_db else (0, 0)
                         logger.info(f"本句音量: 平均 {_db((self._sumsq / self._nsamp) ** 0.5):.1f} dBFS, "
-                                    f"峰值 {_db(self._peak):.1f} dBFS, 任务ID: {self.task_id}")
+                                    f"峰值 {_db(self._peak):.1f} dBFS, 底噪 {_noise:.1f} dBFS, 说话 {_voice:.1f} dBFS, "
+                                    f"信噪比 {_voice - _noise:.0f} dB, 任务ID: {self.task_id}")
                     # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
                     # 实测 2026-09-23: 没说话时 Qwen3 会把术语表 (context) 念成一段"识别结果" (平均 -53.5 / -50.1 dBFS)
                     _gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
@@ -204,7 +210,7 @@ class AudioRecorder:
                             task_id=self.task_id,
                             source='mic',
                             data=base64.b64encode(
-                                np.mean(data[::3], axis=1).tobytes()
+                                self._dec.process(data).tobytes()
                             ).decode('utf-8'),
                             is_final=False,
                             time_start=self._start_time,
