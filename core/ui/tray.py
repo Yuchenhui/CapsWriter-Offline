@@ -339,7 +339,7 @@ class _TraySystem:
         self.toggle_window()
 
 
-def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = None, exit_callback=None, more_options: list = None) -> None:
+def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = None, exit_callback=None, more_options: list = None) -> bool:
     """
     启用最小化到托盘功能
 
@@ -363,6 +363,7 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
     # 检查托盘功能是否可用
     if not _check_tray_available():
         logger.info("托盘功能不可用，跳过启用")
+        return False
         return
 
     # DPI 感知设置
@@ -374,12 +375,13 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
     with _lock:
         if _tray_instance is not None:
-            return  # 已启动
+            return True  # 已启动
 
         # 本地改: 原来没控制台窗口就不建托盘 —— conhost --headless 无窗口启动时托盘会凭空消失.
         # 托盘本身不依赖控制台; 没窗口时「显示/隐藏」和最小化监控本就是空操作 (hwnd 为空直接 return)
         _tray_instance = _TraySystem(name, icon_path, more_options)
         _tray_instance.start()
+        return True
 
 
 

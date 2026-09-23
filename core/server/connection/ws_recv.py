@@ -9,6 +9,8 @@ import json
 import time
 from base64 import b64decode
 
+_MAX_CACHE_BYTES = 64 * 1024 * 1024   # 本地改: 单任务音频缓冲上限 (16kHz float32 约 17 分钟), 防止被灌音频撑爆内存
+
 import websockets
 
 from ..state import console
@@ -81,6 +83,10 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     try:
         # base64 解码音频数据（float32, 16kHz, mono）
         data = b64decode(msg.data)
+        if len(cache.chunks) + len(data) > _MAX_CACHE_BYTES:
+            logger.warning(f"音频缓冲超过 {_MAX_CACHE_BYTES >> 20}MB, 丢弃该任务 {msg.task_id}")
+            cache.reset()
+            return
         cache.chunks += data
         cache.byte_count += len(data)
 

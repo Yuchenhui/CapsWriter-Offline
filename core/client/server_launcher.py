@@ -6,6 +6,7 @@
 退出时只关自己拉起的那个服务端 (连同其识别子进程), 不碰外部手动启动的.
 """
 import logging
+import os
 import re
 import socket
 import subprocess
@@ -52,6 +53,7 @@ def _watch(base_dir: Path) -> None:
 
 
 def start(base_dir) -> None:
+    gpu_unboost()   # 上次若异常退出, 显存可能还锁着
     if not getattr(Config, 'auto_start_server', False):
         return
     threading.Thread(target=_watch, args=(Path(base_dir),), daemon=True, name='server-launcher').start()
@@ -64,6 +66,18 @@ def stop() -> None:
         subprocess.run(['taskkill', '/PID', str(_proc.pid), '/T', '/F'],
                        capture_output=True, creationflags=CREATE_NO_WINDOW)
         logger.info(f'已关闭托管的服务端 pid={_proc.pid}')
+    gpu_unboost()
+
+
+def gpu_unboost() -> None:
+    """尽力解除显存锁频: 服务端被 taskkill /F 时没机会跑自己的解锁, 显存会一直锁在高频 (2026-09-23 实测卡在 8001MHz)."""
+    cmd = getattr(Config, 'gpu_unboost_cmd', '')
+    if not cmd:
+        return
+    try:
+        subprocess.run(cmd, shell=True, capture_output=True, timeout=10, creationflags=CREATE_NO_WINDOW)
+    except Exception as e:
+        logger.debug(f'解除显存锁频失败: {e}')
 
 
 # ---- 托盘切换识别模型 ------------------------------------------------------
@@ -88,8 +102,10 @@ def switch_model(base_dir, model_type: str) -> bool:
         logger.warning(f'模型未安装, 不切换: {MODELS[model_type][1]}')
         return False
     cfg = base_dir / 'config_server.py'
-    cfg.write_text(_MODEL_RE.sub(lambda m: f"{m.group(1)}'{model_type}'", cfg.read_text(encoding='utf-8'), count=1),
+    tmp = cfg.with_suffix('.py.tmp')   # 先写临时文件再原子替换, 写到一半崩溃不会留下坏配置
+    tmp.write_text(_MODEL_RE.sub(lambda m: f"{m.group(1)}'{model_type}'", cfg.read_text(encoding='utf-8'), count=1),
                    encoding='utf-8')
+    os.replace(tmp, cfg)
     if _proc is not None and _proc.poll() is None:
         subprocess.run(['taskkill', '/PID', str(_proc.pid), '/T', '/F'],
                        capture_output=True, creationflags=CREATE_NO_WINDOW)

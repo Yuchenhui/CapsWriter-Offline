@@ -130,9 +130,9 @@ class AudioStreamManager:
         except UnicodeDecodeError:
             logger.warning("无法获取音频设备名称（编码问题）")
         except sd.PortAudioError:
-            logger.error("未找到麦克风设备")
-            input('按回车键退出')
-            sys.exit(1)
+            # 本地改: 原来 input() 等回车再退出; 无窗口运行 stdin 不可用会直接崩. 改为返回 None, 下次按键/换设备时再试
+            logger.error("未找到麦克风设备, 稍后重试 (插上麦克风或在系统里选默认录音设备)")
+            return None
 
         # 创建音频流
         try:

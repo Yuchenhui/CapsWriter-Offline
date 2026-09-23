@@ -60,11 +60,14 @@ class LayeredRenderer:
     @classmethod
     def create(cls, window, w, h, x, y):
         """w/h/x/y 是胶囊本身的尺寸与屏幕位置; 失败返回 None"""
+        r = None
         try:
             r = cls(window, w, h, x, y)
             r.render([], 0.0)
             return r
         except Exception:
+            if r is not None:
+                r._free()
             return None
 
     def __init__(self, window, w, h, x, y):
@@ -137,12 +140,9 @@ class LayeredRenderer:
             d.line((p1, p2), fill=c, width=max(1, round(w * SS)))
             for px, py in (p1, p2):   # 圆头
                 d.ellipse((px - r, py - r, px + r, py + r), fill=c)
-        img = img.resize((self.W, self.H), self.Image.LANCZOS)
-
-        # UpdateLayeredWindow 要预乘 alpha 的 BGRA
-        r, g, b, a = img.split()
-        mul = self.ImageChops.multiply
-        data = self.Image.merge('RGBA', (mul(r, a), mul(g, a), mul(b, a), a)).tobytes('raw', 'BGRA')
+        # 本地改: 先预乘再 reduce (整数倍盒式缩小): LANCZOS 1.15ms -> reduce ~0.4ms/帧 (实测整帧 1.59 -> 0.57ms),
+        # 且预乘后再缩小, 边缘不会把透明像素的黑色平均进来. UpdateLayeredWindow 正好要预乘 alpha 的 BGRA
+        data = img.convert('RGBa').reduce(SS).tobytes('raw', 'BGRa')
         ctypes.memmove(self.bits, data, len(data))
 
         src = wintypes.POINT(0, 0)

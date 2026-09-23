@@ -191,7 +191,8 @@ class ResultProcessor:
         delay = message.time_complete - message.time_submit
 
         if message.is_final:
-            logger.info(f"收到最终识别结果: {text}, 时延: {delay:.2f}s")
+            logger.info(f"收到最终识别结果 ({len(text)} 字), 时延: {delay:.2f}s")
+            logger.debug(f"识别结果全文: {text}")
         else:
             logger.debug(
                 f"接收到识别结果，文本: {text[:50]}{'...' if len(text) > 50 else ''}, "

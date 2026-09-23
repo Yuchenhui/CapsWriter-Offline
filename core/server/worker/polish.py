@@ -11,14 +11,20 @@ DMSL 错改成 Docker; MiniMax M2.x 思考关不掉 (3-9s); DeepSeek Flash 关�
 from __future__ import annotations
 
 import difflib
+import re
 import json
 import os
 import time
+import ssl
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from config_server import ServerConfig as Config
 from core.tools.terms import load_terms
 from . import logger
+
+_SSL_CTX = ssl.create_default_context()   # 建一次: 每次新建要加载证书库, 实测 11.8ms CPU
+_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='polish')
 
 _SYSTEM = """你是语音识别（ASR）结果的校对器。输入是一句由语音自动转写的文字，错误来自"听错"，不是"写错"。
 
@@ -65,7 +71,7 @@ def _call_api(text: str) -> str:
     }
     req = urllib.request.Request(Config.polish_api_url, json.dumps(body).encode('utf-8'),
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=Config.polish_timeout) as r:
+    with urllib.request.urlopen(req, timeout=Config.polish_timeout, context=_SSL_CTX) as r:
         return (json.load(r)['choices'][0]['message'].get('content') or '').strip()
 
 
@@ -75,17 +81,22 @@ def polish(text: str) -> str:
         return text
     t0 = time.time()
     try:
-        out = _call_api(text)
+        # 硬上限: urlopen 的 timeout 是每次 socket 操作各自 3s, 连接+读可能叠加超过; 这里按总时长截断
+        out = _POOL.submit(_call_api, text).result(timeout=Config.polish_timeout)
     except Exception as e:
         logger.warning(f'二次整理失败, 用原文 ({time.time() - t0:.2f}s): {e}')
+        return text
+    out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
+    if '\n' not in text and '\n' in out:                        # 原文单行, 输出多出换行 -> 贴进终端可能执行半条命令
+        logger.debug(f'二次整理放弃 (输出多出换行): {text} -X-> {out!r}')
         return text
     # 比较前统一小写、去空白: "deep sick"->"DeepSeek" 这种大小写/空格差异不该算改动, 否则短句必被误拦
     norm = lambda x: ''.join(x.lower().split())
     change = 1 - difflib.SequenceMatcher(None, norm(text), norm(out)).ratio()
     dt = time.time() - t0
     if not out or change > Config.polish_max_change:
-        logger.info(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
+        logger.debug(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
         return text
     if out != text:
-        logger.info(f'二次整理 ({change:.0%}, {dt:.2f}s): {text} --> {out}')
+        logger.debug(f'二次整理 ({change:.0%}, {dt:.2f}s): {text} --> {out}')
     return out

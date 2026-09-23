@@ -67,7 +67,10 @@ class SocketManager:
             Config.addr,
             Config.port,
             subprotocols=["binary"],
-            max_size=None
+            # 本地改: origins=[None] 只接受不带 Origin 头的连接 —— 浏览器一定带 Origin, 网页 JS 就连不上本机 6016 了
+            # (实测原来带任意 Origin 握手返回 101, 可被网页灌音频占 GPU / 刷 DeepSeek 额度). max_size 4MB 防单帧撑爆内存
+            origins=[None],
+            max_size=4 * 1024 * 1024,
         ) as server:
             self._server = server  # 保存 server 引用，用于外部关闭
 
