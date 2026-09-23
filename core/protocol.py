@@ -35,6 +35,7 @@ class AudioMessage:
     seg_overlap: float = 2.0
     context: str = ''
     language: str = 'auto'
+    polish: bool = True          # 是否做二次整理 (客户端托盘开关)
 
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""
@@ -53,6 +54,7 @@ class AudioMessage:
             seg_overlap=data.get('seg_overlap', 2.0),
             context=data.get('context', ''),
             language=data.get('language', 'auto'),
+            polish=data.get('polish', True),
         )
 
 

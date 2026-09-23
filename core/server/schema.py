@@ -40,6 +40,7 @@ class Task:
     time_submit: float
     context: str = ''
     language: str = 'auto'
+    polish: bool = True
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
 

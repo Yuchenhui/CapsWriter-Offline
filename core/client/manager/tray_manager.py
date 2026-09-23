@@ -42,6 +42,7 @@ class TrayManager:
                 ('✨ 热词', self._add_hotword),
                 ('🧹 清除记忆', self._clear_memory),
                 ('♻️ 重开音频', self._restart_audio),
+                ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
             ]
         )
         logger.info("托盘图标已启用")
@@ -57,6 +58,11 @@ class TrayManager:
             logger.info("TrayManager: 托盘图标已卸载")
         except Exception as e:
             logger.debug(f"TrayManager: 卸载托盘时发生错误: {e}")
+
+    def _toggle_polish(self):
+        """二次整理开关: 下一句起生效 (随录音消息发给服务端), 重启客户端后回到 config 默认值"""
+        Config.polish = not Config.polish
+        logger.info(f"二次整理: {'开' if Config.polish else '关'}")
 
     def _restart_audio(self):
         """重启音频流回调"""

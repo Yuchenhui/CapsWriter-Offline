@@ -230,8 +230,13 @@ class _TraySystem:
 
         # 添加额外选项
         if more_options:
-            for opt_name, opt_func in more_options:
-                menu_items.append(item(opt_name, opt_func))
+            for opt in more_options:
+                opt_name, opt_func = opt[0], opt[1]
+                if len(opt) > 2:   # 第三项 = 勾选状态函数, 做成可勾选的开关项
+                    checked = opt[2]
+                    menu_items.append(item(opt_name, opt_func, checked=lambda _item, f=checked: f()))
+                else:
+                    menu_items.append(item(opt_name, opt_func))
 
         menu_items.append(item('🔄 重启', self.on_restart))
         menu_items.append(item('❌ 退出', self.on_exit))

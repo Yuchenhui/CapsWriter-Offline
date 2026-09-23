@@ -65,6 +65,8 @@ class ClientConfig:
     hot_similar = 0.6           # RAG 相似热词阈值（低阈值，用于 LLM 上下文）
     hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
+    polish = True               # 服务端二次整理 (小 LLM 修同音字/术语/标点); 托盘「🪄 二次整理」可随时切换
+
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 

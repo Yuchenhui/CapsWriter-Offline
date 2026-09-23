@@ -26,12 +26,12 @@ $log = "$InstallDir\logs\server_latest.log"
 $skip = @(Get-Content $log -EA SilentlyContinue).Count
 Get-Process start_server, start_client -EA SilentlyContinue | Stop-Process -Force -Confirm:$false
 Start-Sleep 2
-Start-Process "$InstallDir\start_server.exe" -WorkingDirectory $InstallDir
+Start-Process "$InstallDir\start_server.exe" -WorkingDirectory $InstallDir -WindowStyle Hidden   # 不闪黑窗口; 托盘「显示/隐藏」仍可调出
 foreach ($i in 1..60) {
     if (@(Get-Content $log -EA SilentlyContinue | Select-Object -Skip $skip) -match 'TaskHandler 开始工作循环') { break }
     Start-Sleep 1
 }
-Start-Process "$InstallDir\start_client.exe" -WorkingDirectory $InstallDir
+Start-Process "$InstallDir\start_client.exe" -WorkingDirectory $InstallDir -WindowStyle Hidden
 Start-Sleep 5
 Select-String "$InstallDir\logs\server_latest.log" -Pattern '全系统初始化完成' | Select-Object -Last 1 | ForEach-Object Line
 Select-String "$InstallDir\logs\client_latest.log" -Pattern 'WebSocket 建立成功|Traceback' | Select-Object -Last 1 | ForEach-Object Line

@@ -19,6 +19,15 @@ class ServerConfig:
     format_num = True       # 输出时是否将中文数字转为阿拉伯数字
     format_spell = True     # 输出时是否调整中英之间的空格
 
+    # 二次整理: 在线 LLM 只修听错的术语/同音字/标点 (core/server/worker/polish.py); 客户端托盘可随时开关
+    polish_enabled = True
+    polish_api_url = 'https://api.deepseek.com/chat/completions'   # 任意 OpenAI 兼容接口
+    polish_model = 'deepseek-v4-flash'
+    polish_api_key_env = 'DEEPSEEK_API_KEY'   # key 只从环境变量读, 不写进仓库
+    polish_timeout = 3.0        # 秒; 超时/断网直接用原文
+    polish_max_change = 0.2     # 改动比例超过此值视为改过头, 退回原文
+    polish_terms = 'WSL, Debian, PostgreSQL, MySQL, Redis, Docker, Kubernetes, VS Code, Claude Code, CapsWriter, Qwen3, DeepSeek, MiniMax, SenseVoice, AutoHotkey, rockbenben, GitHub, PowerShell, Client, Server'
+
     enable_tray = True        # 是否启用托盘图标功能
     hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
 
