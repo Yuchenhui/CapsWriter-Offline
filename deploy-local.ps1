@@ -15,8 +15,13 @@ robocopy "$src\core" "$InstallDir\core" *.py /S /NJH /NJS /NDL /NP | Out-Host
 if ($LASTEXITCODE -ge 8) { throw "robocopy core 失败: $LASTEXITCODE" }
 robocopy "$src\LLM" "$InstallDir\LLM" *.py /NJH /NJS /NDL /NP | Out-Host
 if ($LASTEXITCODE -ge 8) { throw "robocopy LLM 失败: $LASTEXITCODE" }
-foreach ($f in 'config_client.py', 'config_server.py', 'hot.txt', 'hot-rule.txt', 'hot-server.txt', 'start-hidden.vbs', 'terms.txt') {
+foreach ($f in 'config_client.py', 'config_server.py', 'start-hidden.vbs') {
     Copy-Item "$src\$f" "$InstallDir\$f" -Force
+}
+# 词库文件以安装目录为准 (用户会在托盘里加词 / 直接编辑), 只在安装目录缺失时拷; 两边不同时提示, 由人决定往哪边同步
+foreach ($f in 'hot.txt', 'hot-rule.txt', 'hot-server.txt', 'terms.txt') {
+    if (-not (Test-Path "$InstallDir\$f")) { Copy-Item "$src\$f" "$InstallDir\$f" }
+    elseif ((Get-FileHash "$src\$f").Hash -ne (Get-FileHash "$InstallDir\$f").Hash) { "词库 $f 与安装目录不同, 未覆盖 (安装目录为准)" }
 }
 $global:LASTEXITCODE = 0
 if ($NoRestart) { 'copied, no restart'; return }
