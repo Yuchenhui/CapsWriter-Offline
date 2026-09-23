@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import random
 import tkinter as tk
+from core.ui.layered_renderer import LayeredRenderer
 from typing import Optional, Callable, Union
 
 from .toast_constants import DEFAULT_FONT_FAMILY
@@ -139,19 +140,20 @@ def _cursor_monitor_workarea() -> Optional[tuple]:
 # ---- 设计 token ----------------------------------------------------------
 _CHROMA = '#010203'        # 透明抠图色（不会与任何绘制色撞色）
 _PILL_BG = '#262c38'       # 本地改: 仿玻璃, 石板蓝灰 (原 #14141a 近黑)
-_PILL_STROKE = '#8a96aa'   # 本地改: 玻璃亮边 (原 #4a4a54)
 _TEXT_FG = '#f5f5f7'
 _ALPHA = 0.88              # 整体通透度（越小越透，文字仍需可读）
 
 # 签名元素：密集声条频谱（白→青渐变），中间高两侧低，带说话般起伏 + 横向流动
-_WAVE_C1 = '#f5f5f7'       # 声条左端色（近白）
-_WAVE_C2 = '#35e0d0'       # 声条右端色（青，签名色）
 _WAVE_W = 84               # 声条区域宽度（像素）
 _WAVE_AMP = 11             # 声条半振幅（像素，满幅约 2×）
 _WAVE_SPEED = 0.17         # 相位推进速度（每帧）
 _BAR_COUNT = 15            # 声条数量
 _BAR_W = 3                 # 单条宽度（像素，圆头）
 _BAR_MIN_H = 2             # 静止时的最小半高，避免消失
+# 本地改: 动态流动配色 —— 循环色带 (首尾相接), 每根声条按位置取色, 整条色带随时间向右流动
+_WAVE_PALETTE = ('#35e0d0', '#4aa8ff', '#9b7bff', '#ff7eb6')   # 青 -> 蓝 -> 紫 -> 粉 -> (回到青)
+_WAVE_SPAN = 0.6           # 一排声条覆盖色带的比例 (越小相邻声条颜色越接近)
+_WAVE_FLOW = 0.006         # 色带每帧流动量 (~25fps 下约 7 秒转一圈)
 
 # 真实电平驱动（拿不到实时电平时回退到合成动画）
 _LEVEL_GATE = 0.010        # 噪声门：RMS 低于此值视为静音（减掉底噪，避免没说话也在动）
@@ -227,11 +229,6 @@ class ToastWindowRecording:
         self._gate = _level_gate()     # 噪声门（读配置，创建时定）
         # 波形相位起点随机，避免每次录音从同一形状开始
         self._phase0 = random.uniform(0, 6.283)
-        # 预算好每根声条的白→青颜色，避免每帧重复插值
-        self._wave_colors = [
-            self._lerp(_WAVE_C1, _WAVE_C2, i / (_BAR_COUNT - 1))
-            for i in range(_BAR_COUNT)
-        ]
         # 状态机：listening（聆听）/ processing（转写中）
         # _mode 可由任意线程写入（update_text），_applied_mode 仅 Tk 线程读改
         self._mode = 'listening'
@@ -243,12 +240,7 @@ class ToastWindowRecording:
         self.window = tk.Toplevel(parent_root)
         self.window.overrideredirect(True)
         self.window.attributes('-topmost', True)
-        try:
-            self.window.attributes('-transparentcolor', _CHROMA)
-            self.window.attributes('-alpha', 0.0)   # 从透明开始淡入
-        except tk.TclError:
-            # 平台不支持透明属性时降级为不透明
-            self._alpha = self._target_alpha
+        self._ulw = None   # 本地改: 逐像素透明渲染器 (UpdateLayeredWindow), 建窗后初始化; 失败则退回 Tk 画法
 
         self.window.configure(bg=_CHROMA)
         self.window.pack_propagate(False)
@@ -280,6 +272,7 @@ class ToastWindowRecording:
             sh = self.window.winfo_screenheight()
             x = int((sw - self._w) // 2)
             y = int(sh - self._h - margin - 48)
+        self._geom = (x, y)
         self.window.geometry(f'{self._w}x{self._h}+{x}+{y}')
 
         # 预存布局坐标
@@ -288,23 +281,46 @@ class ToastWindowRecording:
         self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
         self._mid_y = self._h / 2
 
-        self._draw_static()
         self.window.deiconify()
+        self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
+        if self._ulw is None:   # 退回 Tk 画法: 抠图色透明 + 整窗 alpha
+            try:
+                self.window.attributes('-transparentcolor', _CHROMA)
+                self.window.attributes('-alpha', 0.0)
+            except tk.TclError:
+                self._alpha = self._target_alpha
+            self._draw_static()
         self._tick()
 
     # -- 绘制 --------------------------------------------------------------
     def _draw_static(self) -> None:
         """绘制不变的部分：圆角胶囊底（含玻璃细边）+ 文案"""
-        # 内缩 1px，让描边不被画布裁掉；细边在半透明背景下定住胶囊轮廓
-        r = self._h / 2 - 1
-        self._round_rect(
-            1, 1, self._w - 1, self._h - 1, r,
-            fill=_PILL_BG, outline=_PILL_STROKE, width=1,
-        )
+        # 本地改: 不再画亮色描边 (Tk 线条无抗锯齿, 深底上一圈亮边锯齿明显);
+        # 胶囊底用 Pillow 4x 超采样画好再缩小, 边缘平滑过渡. Pillow 不可用时退回 Tk 矢量圆角
+        img = self._pill_image()
+        if img is not None:
+            self.canvas.create_image(0, 0, image=img, anchor='nw')
+        else:
+            self._round_rect(0, 0, self._w, self._h, self._h / 2, fill=_PILL_BG)
         self.canvas.create_text(
             self._text_x, self._mid_y, text=self._text, anchor='w',
             fill=_TEXT_FG, font=self._font,
         )
+
+    def _pill_image(self):
+        """抗锯齿胶囊底: 4x 画 (底色=抠图色) 后缩小; 缓存, 引用挂在 self 上防止被回收"""
+        if getattr(self, '_pill_img', None) is not None:
+            return self._pill_img
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            ss = 4
+            big = Image.new('RGB', (self._w * ss, self._h * ss), _CHROMA)
+            ImageDraw.Draw(big).rounded_rectangle((0, 0, self._w * ss - 1, self._h * ss - 1),
+                                                  radius=self._h * ss // 2, fill=_PILL_BG)
+            self._pill_img = ImageTk.PhotoImage(big.resize((self._w, self._h), Image.LANCZOS), master=self.canvas)
+        except Exception:
+            self._pill_img = None
+        return self._pill_img
 
     def _round_rect(self, x1, y1, x2, y2, r, fill='', outline='', width=1, **kw) -> None:
         """本地改: 真圆角 (r 取到高度一半即两端正半圆). 原 smooth polygon 的样条圆角弧度不足"""
@@ -347,8 +363,9 @@ class ToastWindowRecording:
             self._text_x = (self._w - total_w) / 2
             self._dash_x0 = self._text_x + text_w + gap
             self._dash_span = dash_span
-            self.canvas.delete('all')
-            self._draw_static()
+            if self._ulw is None:
+                self.canvas.delete('all')
+                self._draw_static()
             # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
             self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
 
@@ -360,12 +377,13 @@ class ToastWindowRecording:
         # 淡入
         if self._alpha < self._target_alpha:
             self._alpha = min(self._target_alpha, self._alpha + _FADE_STEP)
-            try:
-                self.window.attributes('-alpha', self._alpha)
-            except tk.TclError:
-                pass
+            if self._ulw is None:
+                try:
+                    self.window.attributes('-alpha', self._alpha)
+                except tk.TclError:
+                    pass
 
-        self.canvas.delete('dyn')
+        prims = []   # 本帧动态图元: (x1, y1, x2, y2, 线宽, 颜色), 圆头线段
 
         # 动效区：处理态 = 骨架文字微光（占位短横 + 循环扫光，像文字即将显影）；
         #         聆听态 = 密集声条频谱（白→青渐变，中间高两侧低，横向流动）
@@ -380,11 +398,7 @@ class ToastWindowRecording:
                 # 距扫光中心越近越亮（三角衰减再 1.5 次方，光晕柔和）
                 k = max(0.0, 1.0 - abs(rel_cx - sweep) / _DASH_SIGMA) ** 1.5
                 color = self._lerp(_DASH_BASE, _DASH_HI, k)
-                self.canvas.create_line(
-                    x, self._mid_y, x + w, self._mid_y,
-                    width=_DASH_W + _DASH_SWELL * k, fill=color,
-                    capstyle=tk.ROUND, tags='dyn',
-                )
+                prims.append((x, self._mid_y, x + w, self._mid_y, _DASH_W + _DASH_SWELL * k, color))
                 x += w + _DASH_GAP
         else:
             p = self._phase0 + self._frame * _WAVE_SPEED
@@ -418,15 +432,26 @@ class ToastWindowRecording:
                 if half < _BAR_MIN_H:
                     half = _BAR_MIN_H
                 x = self._wave_x0 + (i + 0.5) * step
-                self.canvas.create_line(
-                    x, self._mid_y - half, x, self._mid_y + half,
-                    width=_BAR_W, fill=self._wave_colors[i],
-                    capstyle=tk.ROUND, tags='dyn',
-                )
+                prims.append((x, self._mid_y - half, x, self._mid_y + half, _BAR_W,
+                              self._palette_at(i / (_BAR_COUNT - 1) * _WAVE_SPAN - self._frame * _WAVE_FLOW)))
+
+        if self._ulw is not None:
+            self._ulw.render(prims, self._alpha)
+        else:
+            self.canvas.delete('dyn')
+            for x1, y1, x2, y2, w, c in prims:
+                self.canvas.create_line(x1, y1, x2, y2, width=w, fill=c, capstyle=tk.ROUND, tags='dyn')
 
         self._after_id = self.window.after(_FRAME_MS, self._tick)
 
     # -- 工具 --------------------------------------------------------------
+    def _palette_at(self, u: float) -> str:
+        """循环色带取色: u 取小数部分, 在相邻两个色标之间线性插值"""
+        n = len(_WAVE_PALETTE)
+        f = (u % 1.0) * n
+        i = int(f) % n
+        return self._lerp(_WAVE_PALETTE[i], _WAVE_PALETTE[(i + 1) % n], f - int(f))
+
     @staticmethod
     def _lerp(c1: str, c2: str, t: float) -> str:
         """在两个十六进制颜色间线性插值"""
