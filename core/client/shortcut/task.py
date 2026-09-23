@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Optional
 from . import logger
 from core.tools.my_status import Status
 from core.client.ui.recording_toast import RecordingToast
+from core.tools.window_focus import activate_window_under_cursor
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -77,6 +78,12 @@ class ShortcutTask:
     def launch(self) -> None:
         """启动录音任务"""
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
+
+        # 先把鼠标下的窗口切到前台, 结果就粘贴到那里 (替代 AHK 的 ~RAlt)
+        try:
+            activate_window_under_cursor()
+        except Exception as e:
+            logger.debug(f"激活鼠标下窗口出错: {e}")
 
         # 记录开始时间
         self.recording_start_time = time.time()

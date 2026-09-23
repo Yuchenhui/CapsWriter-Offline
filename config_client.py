@@ -17,9 +17,9 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'caps_lock',     # 临时: WeType 仍占着右 Alt; 解绑后改回 'alt_gr'
+            'key': 'alt_gr',        # 右 Alt: 按住说话, 松开上屏 (不再用 CapsLock)
             'type': 'keyboard',     # 是键盘快捷键
-            'suppress': True,      # 阻塞按键（短按会补发）
+            'suppress': True,       # 阻塞按键（短按会补发）; 也让 WeType/AHK 收不到长按
             'hold_mode': True,      # 长按模式
             'enabled': True         # 启用此快捷键
         },
