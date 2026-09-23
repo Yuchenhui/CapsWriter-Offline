@@ -138,11 +138,9 @@ def _cursor_monitor_workarea() -> Optional[tuple]:
 
 # ---- 设计 token ----------------------------------------------------------
 _CHROMA = '#010203'        # 透明抠图色（不会与任何绘制色撞色）
-_PILL_BG = '#14141a'       # 胶囊底色（近黑，微偏冷以配青）
-_PILL_STROKE = '#4a4a54'   # 玻璃边缘：半透明背景下用一道细边定住轮廓
+_PILL_BG = '#262c38'       # 本地改: 仿玻璃, 石板蓝灰 (原 #14141a 近黑)
+_PILL_STROKE = '#8a96aa'   # 本地改: 玻璃亮边 (原 #4a4a54)
 _TEXT_FG = '#f5f5f7'
-_DOT_HI = '#ff453a'        # REC 红点（亮）
-_DOT_LO = '#5c1a16'        # REC 红点（暗，用于呼吸插值）
 _ALPHA = 0.88              # 整体通透度（越小越透，文字仍需可读）
 
 # 签名元素：密集声条频谱（白→青渐变），中间高两侧低，带说话般起伏 + 横向流动
@@ -166,14 +164,14 @@ _LEVEL_FLOOR = 0.06        # 静音时的基线高度占比（越小越贴平）
 _FONT_SIZE = 14
 _PILL_H = 50               # 胶囊高度（= 圆角直径）
 _PAD_X = 24                # 左右内边距（留出更宽松的边界）
-_DOT_R = 4.5               # 红点半径
-_GAP_DOT_TEXT = 12
+_DOT_R = 0                 # 本地改: 去掉 REC 红点 (原 4.5)
+_GAP_DOT_TEXT = 0          # 本地改: 原 12, 随红点一起去掉
 _GAP_TEXT_WAVE = 20
 
 _BOTTOM_MARGIN = 16        # 胶囊底边距任务栏（工作区底部）的像素间距
 
 # 「正在转文字」处理态（松开按键后等待识别结果期间）
-_PROC_LABEL = '正在转文字'
+_PROC_LABEL = ''   # 本地改: 不要中文文案, 只留扫光短横当 loading
 _PROC_TIMEOUT_MS = 15_000  # 处理态超时自关（毫秒，服务端假死/静默丢结果兜底）
 
 # 处理态动效：骨架文字微光——一行宽窄错落的占位短横（像即将显影的文字），
@@ -216,7 +214,7 @@ class ToastWindowRecording:
         editable: bool = False,
     ) -> None:
         self.streaming = True          # 常驻，由 close_toast 销毁
-        self._text = text or '正在聆听'
+        self._text = text or ''   # 本地改: 只留红点+声波
         self._font_family = font_family if font_family else DEFAULT_FONT_FAMILY
         self._font_size = font_size or _FONT_SIZE
         self._frame = 0
@@ -259,7 +257,7 @@ class ToastWindowRecording:
         self._font = tkfont.Font(family=self._font_family, size=self._font_size)
         text_w = self._font.measure(self._text)
         self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
-                            + _GAP_TEXT_WAVE + _WAVE_W + _PAD_X))
+                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
         self._h = int(_PILL_H)
 
         self.canvas = tk.Canvas(
@@ -286,7 +284,7 @@ class ToastWindowRecording:
         # 预存布局坐标
         self._dot_cx = _PAD_X + _DOT_R
         self._text_x = self._dot_cx + _DOT_R + _GAP_DOT_TEXT
-        self._wave_x0 = self._text_x + text_w + _GAP_TEXT_WAVE
+        self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
         self._mid_y = self._h / 2
 
         self._draw_static()
@@ -333,9 +331,10 @@ class ToastWindowRecording:
             # 处理态重新布局：无 REC 点，「正在转文字」+ 骨架短横整体居中
             text_w = self._font.measure(self._text)
             dash_span = sum(_DASH_WIDTHS) + _DASH_GAP * (len(_DASH_WIDTHS) - 1)
-            total_w = text_w + _GAP_TEXT_WAVE + dash_span
+            gap = _GAP_TEXT_WAVE if text_w else 0
+            total_w = text_w + gap + dash_span
             self._text_x = (self._w - total_w) / 2
-            self._dash_x0 = self._text_x + text_w + _GAP_TEXT_WAVE
+            self._dash_x0 = self._text_x + text_w + gap
             self._dash_span = dash_span
             self.canvas.delete('all')
             self._draw_static()
@@ -356,17 +355,6 @@ class ToastWindowRecording:
                 pass
 
         self.canvas.delete('dyn')
-
-        # REC 红点呼吸——仅聆听态；处理态不保留任何「正在拾音」语义的元素
-        if not processing:
-            pulse = (math.sin(self._frame * 0.16) + 1) / 2      # 0..1
-            dot_color = self._lerp(_DOT_LO, _DOT_HI, 0.35 + 0.65 * pulse)
-            rr = _DOT_R + pulse * 1.2
-            self.canvas.create_oval(
-                self._dot_cx - rr, self._mid_y - rr,
-                self._dot_cx + rr, self._mid_y + rr,
-                fill=dot_color, outline='', tags='dyn',
-            )
 
         # 动效区：处理态 = 骨架文字微光（占位短横 + 循环扫光，像文字即将显影）；
         #         聆听态 = 密集声条频谱（白→青渐变，中间高两侧低，横向流动）

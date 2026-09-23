@@ -24,7 +24,7 @@ from config_client import ClientConfig as Config
 from . import logger
 
 
-_LABEL = '正在聆听'
+_LABEL = ''   # 本地改: 不显示中文文案
 
 # 当前活动实例注册表（同一时刻至多一个胶囊在屏）
 _active_lock = threading.Lock()
