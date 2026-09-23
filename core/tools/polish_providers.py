@@ -3,7 +3,8 @@
 
 加服务商: 在 PROVIDERS 里加一项. 要求 OpenAI 兼容的 /chat/completions 接口, 且能关掉"思考" (否则一句要等好几秒).
 key 只从环境变量读; 某些服务商允许回退读它自家命令行工具的配置文件 (key_file, 只读, 不复制到别处).
-实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 1.2-1.3s; MiniMax M2.7 关不掉思考 3-6s, 不收录.
+实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 0.7-2.3s; MiMo V2.6 Flash 中位 0.74s 但 3/8 次 >3s (最慢 13s);
+MiniMax M2.7 关不掉思考 3-6s, 不收录.
 """
 import json
 import os
@@ -22,6 +23,12 @@ PROVIDERS = {
         'key_env': 'MINIMAX_API_KEY',
         'key_file': ('~/.mmx/config.json', 'api_key'),   # mmx-cli 登录后存的 key
     },
+    'mimo': {
+        'name': 'MiMo V2.6 Flash',
+        'url': 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions',
+        'model': 'mimo-v2.6-flash',
+        'key_env': 'MIMO_API_KEY',
+    },
 }
 DEFAULT = 'deepseek'
 
@@ -35,9 +42,19 @@ def resolve(value) -> str:
     return ''
 
 
+def _user_env(name: str) -> str:
+    """进程启动后才设的用户环境变量, os.environ 里没有 (要等重新登录); 直接读注册表 HKCU/Environment"""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as k:
+            return str(winreg.QueryValueEx(k, name)[0] or '')
+    except OSError:
+        return ''
+
+
 def api_key(pid: str) -> str:
     p = PROVIDERS[pid]
-    key = os.environ.get(p['key_env'], '')
+    key = os.environ.get(p['key_env'], '') or _user_env(p['key_env'])
     if not key and p.get('key_file'):
         path, field = p['key_file']
         try:
