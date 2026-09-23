@@ -206,6 +206,24 @@ def _create_icon(icon_path: Optional[str] = None):
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
+def _dynamic_menu(fn):
+    """本地改: fn() 返回条目列表, 每次重建菜单时调用. 条目:
+    (文字, 零参动作, 零参勾选函数) / (文字, 'submenu', 取条目函数[, 零参勾选函数]) / None = 分隔线"""
+    import pystray
+    from pystray import MenuItem as item
+
+    def build():
+        for e in fn():
+            if e is None:
+                yield pystray.Menu.SEPARATOR
+            elif e[1] == 'submenu':
+                chk = e[3] if len(e) > 3 else (lambda: None)
+                yield item(e[0], _dynamic_menu(e[2]), checked=lambda _i, c=chk: c(), radio=True)
+            else:
+                yield item(e[0], e[1], checked=lambda _i, c=e[2]: c(), radio=True)
+    return pystray.Menu(build)
+
+
 class _TraySystem:
     """托盘系统内部类"""
     
@@ -232,10 +250,8 @@ class _TraySystem:
         if more_options:
             for opt in more_options:
                 opt_name, opt_func = opt[0], opt[1]
-                if len(opt) > 2 and opt_func == 'submenu':   # 本地改: 动态子菜单, 每次重建菜单时重新取列表
-                    def _gen(fn=opt[2]):
-                        return (item(t, a, checked=lambda _i, c=c: c(), radio=True) for t, a, c in fn())
-                    menu_items.append(item(opt_name, pystray.Menu(_gen)))
+                if len(opt) > 2 and opt_func == 'submenu':   # 本地改: 动态子菜单 (可嵌套), 每次重建菜单时重新取列表
+                    menu_items.append(item(opt_name, _dynamic_menu(opt[2])))
                 elif len(opt) > 2:   # 第三项 = 勾选状态函数, 做成可勾选的开关项
                     checked = opt[2]
                     menu_items.append(item(opt_name, opt_func, checked=lambda _item, f=checked: f()))

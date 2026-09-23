@@ -93,8 +93,38 @@ class TrayManager:
         cur = default_capture_id()
         if not devs:
             return [('（没有可用的录音设备）', lambda: None, lambda: False)]
-        return [(name + ('  [已静音]' if muted else ''), self._mic_action(dev_id, name), self._mic_checked(dev_id, cur))
-                for dev_id, name, muted in devs]
+        return [(name + ('  [已静音]' if muted else ''), 'submenu', self._mic_device_items(dev_id, name),
+                 self._mic_checked(dev_id, cur))
+                for dev_id, name, muted, _gain in devs]
+
+    def _mic_device_items(self, dev_id, name):
+        """某个麦克风的子菜单: 设为当前 + 增益档位 (Windows 按设备保存增益, 各设备互不影响)"""
+        def items():
+            from core.client.audio import mic_select
+            out = [('使用这个麦克风', self._mic_action(dev_id, name), lambda: None)]
+            gi = mic_select.gain_info(dev_id)
+            if gi and gi[0] is not None:
+                cur_db, mn, mx, inc = gi
+                out.append(None)
+                out.append((f'当前增益 {cur_db:+g} dB', lambda: None, lambda: None))
+                for db in mic_select.gain_steps(mn, mx, inc):
+                    out.append((f'增益 {db:+g} dB', self._gain_action(dev_id, name, db), self._gain_checked(cur_db, db, inc)))
+            return out
+        return items
+
+    @staticmethod
+    def _gain_checked(cur_db, db, inc):
+        def checked():
+            return abs(cur_db - db) < max(inc, 0.5) / 2 + 1e-6
+        return checked
+
+    @staticmethod
+    def _gain_action(dev_id, name, db):
+        def action():
+            from core.client.audio import mic_select
+            if mic_select.set_gain(dev_id, db):
+                logger.info(f'托盘设置麦克风增益: {name} -> {db:+g} dB')
+        return action
 
     @staticmethod
     def _mic_checked(dev_id, cur):

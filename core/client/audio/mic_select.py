@@ -63,19 +63,87 @@ def _device_info(dev):
             ole32.PropVariantClear(ctypes.byref(pv))
         _release(store)
 
-    muted = False
-    vol = ctypes.c_void_p()
-    if not _vcall(dev, 3, ctypes.HRESULT, ctypes.POINTER(_GUID), wintypes.DWORD, ctypes.c_void_p, _P)(
-            dev, ctypes.byref(_IID_IAudioEndpointVolume), CLSCTX_ALL, None, ctypes.byref(vol)):   # Activate
+    muted, gain = False, None
+    vol = _endpoint_volume(dev)
+    if vol:
         m = wintypes.BOOL()
         _vcall(vol, 15, ctypes.HRESULT, ctypes.POINTER(wintypes.BOOL))(vol, ctypes.byref(m))   # GetMute
         muted = bool(m.value)
+        gain = _get_db(vol)
         _release(vol)
-    return dev_id, name, muted
+    return dev_id, name, muted, gain
+
+
+def _endpoint_volume(dev):
+    """IMMDevice -> IAudioEndpointVolume (调用方负责 release); 失败 None"""
+    vol = ctypes.c_void_p()
+    if _vcall(dev, 3, ctypes.HRESULT, ctypes.POINTER(_GUID), wintypes.DWORD, ctypes.c_void_p, _P)(
+            dev, ctypes.byref(_IID_IAudioEndpointVolume), CLSCTX_ALL, None, ctypes.byref(vol)):   # Activate
+        return None
+    return vol
+
+
+def _get_db(vol):
+    db = ctypes.c_float()
+    if _vcall(vol, 8, ctypes.HRESULT, ctypes.POINTER(ctypes.c_float))(vol, ctypes.byref(db)):   # GetMasterVolumeLevel
+        return None
+    return round(db.value, 2)
+
+
+def _with_device_volume(dev_id, fn):
+    """按端点 ID 取 IAudioEndpointVolume 执行 fn(vol); 失败返回 None"""
+    enum = _com(_CLSID_MMDeviceEnumerator, _IID_IMMDeviceEnumerator)
+    if not enum:
+        return None
+    dev = ctypes.c_void_p()
+    try:
+        if _vcall(enum, 5, ctypes.HRESULT, ctypes.c_wchar_p, _P)(enum, dev_id, ctypes.byref(dev)):   # GetDevice
+            return None
+        vol = _endpoint_volume(dev)
+        if not vol:
+            return None
+        try:
+            return fn(vol)
+        finally:
+            _release(vol)
+    except OSError as e:
+        logger.warning(f'读写麦克风增益失败: {e}')
+        return None
+    finally:
+        _release(dev)
+        _release(enum)
+
+
+def gain_info(dev_id: str):
+    """(当前 dB, 最小 dB, 最大 dB, 步长 dB); 失败 None"""
+    def fn(vol):
+        mn, mx, inc = ctypes.c_float(), ctypes.c_float(), ctypes.c_float()
+        if _vcall(vol, 20, ctypes.HRESULT, *[ctypes.POINTER(ctypes.c_float)] * 3)(
+                vol, ctypes.byref(mn), ctypes.byref(mx), ctypes.byref(inc)):   # GetVolumeRange
+            return None
+        return _get_db(vol), round(mn.value, 2), round(mx.value, 2), round(inc.value, 3)
+    return _with_device_volume(dev_id, fn)
+
+
+def set_gain(dev_id: str, db: float) -> bool:
+    """设录音增益 (dB); Windows 按设备保存, 换设备不互相影响"""
+    def fn(vol):
+        return not _vcall(vol, 6, ctypes.HRESULT, ctypes.c_float, ctypes.c_void_p)(vol, db, None)   # SetMasterVolumeLevel
+    return bool(_with_device_volume(dev_id, fn))
+
+
+def gain_steps(mn: float, mx: float, inc: float, max_items: int = 11) -> list:
+    """菜单里给的增益档位: 从最大往下按设备步长取, 档位太多就放宽间隔 (软件音量步长常是 0.03 dB)"""
+    inc = inc if inc and inc > 0 else 1.0
+    n = int(round((mx - mn) / inc)) + 1
+    if n <= max_items:
+        return [round(mx - i * inc, 2) for i in range(n)]
+    gap = max(1, -(-int(mx - mn) // (max_items - 1)))   # 整数 dB 等间隔, 向上取整
+    return [float(v) for v in range(int(mx), int(mn) - 1, -gap) if v >= mn]
 
 
 def list_capture() -> list:
-    """可用 (ACTIVE) 录音设备: [(id, 名称, 是否静音)]; 失败返回 []"""
+    """可用 (ACTIVE) 录音设备: [(id, 名称, 是否静音, 增益 dB)]; 失败返回 []"""
     enum = _com(_CLSID_MMDeviceEnumerator, _IID_IMMDeviceEnumerator)
     if not enum:
         return []
@@ -126,7 +194,14 @@ if __name__ == '__main__':   # 只读自检: 列设备 + 当前默认, 不改任
     devs = list_capture()   # 内部会 CoInitialize, 先调它
     cur = default_capture_id()
     assert devs, '一个录音设备都没列出来'
-    for i, n, m in devs:
-        print(('* ' if i == cur else '  ') + n + ('  [静音]' if m else ''))
-    assert any(i == cur for i, _, _ in devs), '默认设备不在列表里'
+    for i, n, m, g in devs:
+        gi = gain_info(i)
+        print(('* ' if i == cur else '  ') + n + ('  [静音]' if m else '') + f'  增益 {g} dB  范围 {gi}')
+        assert gi is None or gi[0] == g
+        if gi:
+            steps = gain_steps(*gi[1:])
+            assert 1 < len(steps) <= 11 and steps[0] == gi[2] and steps[-1] >= gi[1], steps
+    assert any(i == cur for i, *_ in devs), '默认设备不在列表里'
+    assert gain_steps(-15, 5, 2) == [5, 3, 1, -1, -3, -5, -7, -9, -11, -13, -15]
+    assert len(gain_steps(-96, 0, 0.03)) <= 11
     print('mic_select selftest ok')
