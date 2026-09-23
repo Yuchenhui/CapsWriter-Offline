@@ -252,6 +252,20 @@ class _TraySystem:
             menu=tuple(menu_items)
         )
 
+    def _run_icon(self) -> None:
+        """本地改: 托盘线程单独用 Per-Monitor V2 DPI (进程其余部分仍是 system-aware, 胶囊/对话框尺寸不变).
+        否则登录后换了显示器缩放 (如 100% -> 150%), 右键菜单会被 Windows 按位图放大而发虚. pystray 的窗口在 run() 里创建, 所以在这里设."""
+        try:
+            import ctypes
+            fn = ctypes.windll.user32.SetThreadDpiAwarenessContext
+            fn.restype = ctypes.c_void_p
+            fn.argtypes = [ctypes.c_void_p]
+            prev = fn(ctypes.c_void_p(-4))   # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2; 返回旧值, NULL = 失败
+            logger.info(f"托盘线程 DPI 感知: {'Per-Monitor V2' if prev else '设置失败'}")
+        except Exception as e:
+            logger.debug(f'托盘线程设置 DPI 感知失败: {e}')
+        self.icon.run()
+
     def toggle_window(self) -> None:
         """切换窗口显示状态"""
         if not self.hwnd or user32 is None:
@@ -332,7 +346,7 @@ class _TraySystem:
     def start(self) -> None:
         """启动托盘系统"""
         # 托盘图标线程
-        t_tray = threading.Thread(target=self.icon.run, daemon=False)
+        t_tray = threading.Thread(target=self._run_icon, daemon=False)
         t_tray.start()
 
         # 状态监控线程
