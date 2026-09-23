@@ -17,7 +17,7 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'caps_lock',     # 监听大写锁定键
+            'key': 'caps_lock',     # 临时: WeType 仍占着右 Alt; 解绑后改回 'alt_gr'
             'type': 'keyboard',     # 是键盘快捷键
             'suppress': True,      # 阻塞按键（短按会补发）
             'hold_mode': True,      # 长按模式
@@ -34,7 +34,7 @@ class ClientConfig:
 
     threshold    = 0.3          # 快捷键触发阈值（秒）
 
-    paste        = False        # 是否以写入剪切板然后模拟 Ctrl-V 粘贴的方式输出结果
+    paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
     restore_clip = True         # 模拟粘贴后是否恢复剪贴板
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴
 
@@ -43,13 +43,14 @@ class ClientConfig:
     save_audio = True           # 是否保存录音文件
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
 
-    show_recording_toast = True  # 录音时是否在屏幕上显示悬浮状态提示（深色胶囊+声波条），松开按键后转为「正在转文字」，文字开始输出时消失
-    recording_toast_margin = 16  # 悬浮胶囊底边距任务栏的像素间距，越小越贴近任务栏
-    recording_toast_opacity = 0.88  # 悬浮胶囊整体不透明度（0.2~1.0），越小越透，背景透出越多
-    recording_toast_sensitivity = 12.0  # 波形对麦克风音量的灵敏度，说话时波形不够跳就调大、太满就调小
-    recording_toast_noise_gate = 0.010  # 噪声门：麦克风音量低于此值视为静音，没说话也在动就调大（如 0.02）
+    # 录音胶囊 (移植自 rockbenben/CapsWriter-Offline 09eb846/d5380b6/ca8b1ca)
+    show_recording_toast = True  # 录音时屏幕底部显示深色胶囊+声波条，松开后「正在转文字」，出字后消失
+    recording_toast_margin = 16  # 胶囊底边距任务栏像素
+    recording_toast_opacity = 0.75  # 不透明度 0.2~1.0 (本地改: 原 0.88, 配合仿玻璃)
+    recording_toast_sensitivity = 12.0  # 波形灵敏度，不够跳调大、太满调小
+    recording_toast_noise_gate = 0.010  # 噪声门，没说话也在动就调大 (如 0.02)
     
-    context = ''                # 提示词上下文，用于辅助 Fun-ASR-Nano 模型识别（例如输入人名、地名、专业术语等）
+    context = '千问三, Qwen3, Claude Code, CapsWriter'  # Qwen3-ASR 不读 hot-server.txt, 只能靠这里给上下文; 提示词上下文，用于辅助 Fun-ASR-Nano 模型识别（例如输入人名、地名、专业术语等）
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）
 
     trash_punc = '，。,.'       # 识别结果要消除的末尾标点
@@ -64,7 +65,7 @@ class ClientConfig:
     hot_similar = 0.6           # RAG 相似热词阈值（低阈值，用于 LLM 上下文）
     hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
-    llm_enabled = True          # 是否启用 LLM 润色功能，需要配置 LLM/ 目录下的角色文件
+    llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 
     enable_tray = True          # 客户端默认启用托盘图标功能

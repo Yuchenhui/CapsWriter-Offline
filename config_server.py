@@ -10,11 +10,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 服务端配置
 class ServerConfig:
-    addr = '0.0.0.0'
+    addr = '127.0.0.1'  # 只本机; 0.0.0.0 会暴露到局域网
     port = '6016'
 
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
-    model_type = 'qwen_asr'
+    model_type = 'sensevoice'  # 2026-09-23 试小模型; 回退 Qwen3 1.7B 改回 'qwen_asr'
 
     format_num = True       # 输出时是否将中文数字转为阿拉伯数字
     format_spell = True     # 输出时是否调整中英之间的空格
@@ -108,7 +108,7 @@ class SenseVoiceArgs:
     decoder_path = ModelPaths.sensevoice_decoder.as_posix()
     tokenizer_path = ModelPaths.sensevoice_tokenizer.as_posix()
     itn = True                  # 原生输出阿拉伯数字
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = 'DML'       # 上显存, 省内存; ONNX 推理后端 (CPU, DML)
     top_k = 8                   # 热词检索的 CTC 空间大小
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
 
@@ -146,7 +146,7 @@ class Qwen3ASRGGUFArgs:
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
     # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = 'DML'       # 编码器上显存, 省 ~0.6GB 内存; ONNX 推理后端 (CPU, DML)
     llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
     
     # 模型细节
