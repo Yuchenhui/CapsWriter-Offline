@@ -112,6 +112,12 @@ class ShortcutManager:
 
             task = self.tasks[key_name]
 
+            # 本地改: 松开时若本程序没见过对应的按下 (按下发生在钩子装好之前, 已送达系统), 必须放行这个松开,
+            # 否则系统永远收不到该键的 release, 修饰键卡死 (2026-09-23 Alt 卡死事故). 系统状态需要 down/up 配对
+            if msg in KEY_UP_MESSAGES and task.shortcut.hold_mode and not task.is_recording:
+                logger.info(f"[{key_name}] 松开但未见按下 (钩子装好前已按下), 放行不拦截")
+                return True
+
             # 处理按键事件
             if msg in KEY_DOWN_MESSAGES:
                 self._event_handler.handle_keydown(key_name, task)

@@ -143,7 +143,11 @@ class CapsWriterClient:
             # 麦克风实时模式
             runner = MicRunner(self)
         
-        import atexit
+        import atexit, threading, traceback
+        def _thread_hook(args):   # 本地改: 守护线程崩溃写进日志, 否则无窗口运行时看不见
+            logger.error('线程 %s 异常: %s', args.thread.name if args.thread else '?',
+                         ''.join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+        threading.excepthook = _thread_hook
         atexit.register(self.stop)   # 本地改: 异常退出/被 kill 以外的任何退出都要关托管的服务端、恢复音箱静音
         try:
             self.loop.run_until_complete(runner.run())

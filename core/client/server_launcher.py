@@ -53,6 +53,7 @@ def _watch(base_dir: Path) -> None:
 
 
 def start(base_dir) -> None:
+    gpu_unboost()   # 上次若异常退出, 显存可能还锁着
     if not getattr(Config, 'auto_start_server', False):
         return
     threading.Thread(target=_watch, args=(Path(base_dir),), daemon=True, name='server-launcher').start()
@@ -65,6 +66,18 @@ def stop() -> None:
         subprocess.run(['taskkill', '/PID', str(_proc.pid), '/T', '/F'],
                        capture_output=True, creationflags=CREATE_NO_WINDOW)
         logger.info(f'已关闭托管的服务端 pid={_proc.pid}')
+    gpu_unboost()
+
+
+def gpu_unboost() -> None:
+    """尽力解除显存锁频: 服务端被 taskkill /F 时没机会跑自己的解锁, 显存会一直锁在高频 (2026-09-23 实测卡在 8001MHz)."""
+    cmd = getattr(Config, 'gpu_unboost_cmd', '')
+    if not cmd:
+        return
+    try:
+        subprocess.run(cmd, shell=True, capture_output=True, timeout=10, creationflags=CREATE_NO_WINDOW)
+    except Exception as e:
+        logger.debug(f'解除显存锁频失败: {e}')
 
 
 # ---- 托盘切换识别模型 ------------------------------------------------------
