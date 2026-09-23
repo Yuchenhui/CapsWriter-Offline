@@ -15,7 +15,7 @@ from . import logger
 from core.tools.my_status import Status
 from core.client.ui.recording_toast import RecordingToast
 from core.tools.window_focus import activate_window_under_cursor
-from core.client.audio import speaker_mute
+from core.client.audio import speaker_mute, idle_release
 from config_client import ClientConfig as _Cfg
 import threading as _threading
  
@@ -91,6 +91,7 @@ class ShortcutTask:
             _path = f'error {e!r}'
             logger.debug(f"激活鼠标下窗口出错: {e}")
         key_trace.push('step', f'切前台 {_path} {(time.perf_counter() - _t0) * 1000:.1f}ms RAlt {_a0}->{key_trace.ralt()}')
+        idle_release.wake(self.app)   # 麦克风若已闲置释放, 后台重新打开 (约 0.5s)
 
         # 记录开始时间
         self.recording_start_time = time.time()
@@ -137,6 +138,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self._unmute()
+        idle_release.schedule(self.app)
         self.state.stop_recording()
         self._status.stop()
         self._rec_toast.stop()
@@ -150,6 +152,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self._unmute()
+        idle_release.schedule(self.app)
         duration = self.state.stop_recording()
         self._status.stop()
         # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭

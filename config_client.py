@@ -72,6 +72,7 @@ class ClientConfig:
 
     enable_tray = True          # 客户端默认启用托盘图标功能
     mute_speaker_while_recording = True  # 按住录音时音箱静音, 松开恢复原状态 (防止播放声被收进去)
+    mic_idle_release_sec = 60   # 最后一次录音后 N 秒关麦克风 (占用灯灭), 下次按键约 0.5s 重开; 0 = 常开. 2026-09-23 曾被误判为卡键原因, 实为 GPU 锁频
     follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
     gpu_unboost_cmd = ''        # 同上根因, 客户端启动/退出时也不再调计划任务
     auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
