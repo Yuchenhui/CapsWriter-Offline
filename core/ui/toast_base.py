@@ -159,6 +159,7 @@ class ToastWindowBase(ABC):
         self.window.bind('<ButtonRelease-1>', self._on_drag_stop)
         self.window.bind('<B1-Motion>', self._on_drag_motion)
         self.window.bind('<Escape>', self._destroy_window)
+        self.window.bind('<Double-Button-1>', self._destroy_window)   # 本地改: 双击关闭 (单击是拖动)
         self.window.bind('<Enter>', self._on_mouse_enter)
         self.window.bind('<Leave>', self._on_mouse_leave)
         self.window.bind('<MouseWheel>', self._on_mouse_wheel)
