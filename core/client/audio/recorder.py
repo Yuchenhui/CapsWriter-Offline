@@ -179,7 +179,8 @@ class AudioRecorder:
                 elif task['type'] == 'finish':
                     if self._nsamp:
                         _db = lambda v: 20 * np.log10(v) if v > 0 else -120.0
-                        _noise, _voice = (np.percentile(self._blk_db, 10), np.percentile(self._blk_db, 90)) if self._blk_db else (0, 0)
+                        _b = [x for x in self._blk_db if x > -90]   # 排除纯数字静音块 (麦克风闲置释放后重开的头几块), 否则底噪虚低
+                        _noise, _voice = (np.percentile(_b, 10), np.percentile(_b, 90)) if _b else (0, 0)
                         logger.info(f"本句音量: 平均 {_db((self._sumsq / self._nsamp) ** 0.5):.1f} dBFS, "
                                     f"峰值 {_db(self._peak):.1f} dBFS, 底噪 {_noise:.1f} dBFS, 说话 {_voice:.1f} dBFS, "
                                     f"信噪比 {_voice - _noise:.0f} dB, 任务ID: {self.task_id}")
