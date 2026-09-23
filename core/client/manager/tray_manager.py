@@ -37,15 +37,14 @@ class TrayManager:
             icon_path,
             exit_callback=self.app.stop,
             more_options=[
-                ('📋 复制结果', self._copy_last_result),
-                ('📁 日记', self._open_diary),
-                ('📝 上下文', self._add_context),
-                ('✨ 热词', self._add_hotword),
-                ('🧹 清除记忆', self._clear_memory),
-                ('♻️ 重开音频', self._restart_audio),
-                ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
-                ('🎤 麦克风', 'submenu', self._mic_items),
-            ] + [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
+                # 本地改 (2026-09-23 精简): 去掉 日记 (录音已关) / 上下文 (由 terms.txt 取代) / 清除记忆 (LLM 已关) /
+                # 重开音频 (流失效自动重开 + 麦克风菜单 + 重启 已覆盖); 模型、词库改二级菜单
+                ('复制结果', self._copy_last_result),
+                ('二次整理', self._toggle_polish, lambda: Config.polish),
+                ('麦克风', 'submenu', self._mic_items),
+                ('模型', 'submenu', self._model_items),
+                ('词库', 'submenu', self._wordlist_items),
+            ]
         )
         logger.info("托盘图标已启用")
 
@@ -61,16 +60,33 @@ class TrayManager:
         except Exception as e:
             logger.debug(f"TrayManager: 卸载托盘时发生错误: {e}")
 
+    def _model_items(self):
+        """托盘「模型」子菜单"""
+        return [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
+
     def _model_item(self, model_type, name):
         """托盘单选项. 回调必须零参数闭包: pystray 按参数个数决定是否传 (icon, item), 带默认参数的 lambda 会被覆盖"""
         def action():
             self._switch_model(model_type)
         def checked():
             return server_launcher.current_model(self.app.base_dir) == model_type
-        return (f'模型: {name}', action, checked)
+        return (name, action, checked)
+
+    # 托盘「词库」子菜单: 点了用系统默认编辑器打开, 保存即生效 (不用重启)
+    _WORDLISTS = (('术语表 (terms.txt)', 'terms.txt'),        # 识别前作为上下文提示模型
+                  ('热词 (hot.txt)', 'hot.txt'),              # 识别后按读音相似度纠正
+                  ('替换规则 (hot-rule.txt)', 'hot-rule.txt'))   # 识别后按正则精确替换
+
+    def _wordlist_items(self):
+        return [(label, self._open_file(fname), lambda: None) for label, fname in self._WORDLISTS]
+
+    def _open_file(self, fname):
+        def action():
+            os.startfile(os.path.join(self.app.base_dir, fname))
+        return action
 
     def _mic_items(self):
-        """托盘「🎤 麦克风」子菜单: 可用录音设备, 打勾 = 当前 Windows 默认 (CapsWriter 跟随它)"""
+        """托盘「麦克风」子菜单: 可用录音设备, 打勾 = 当前 Windows 默认 (CapsWriter 跟随它)"""
         from core.client.audio import mic_select
         from core.client.audio.default_device_watch import default_capture_id
         devs = mic_select.list_capture()   # 先调它: 内部会在托盘线程里 CoInitialize
@@ -105,49 +121,6 @@ class TrayManager:
         user_state.save()   # 持久化, 重启后保持
         logger.info(f"二次整理: {'开' if Config.polish else '关'}")
 
-    def _restart_audio(self):
-        """重启音频流回调"""
-        if hasattr(self.app, 'stream') and self.app.stream:
-            self.app.stream.reopen()
-            logger.info("用户请求重启音频")
-
-    def _clear_memory(self):
-        """清除 LLM 对话历史回调"""
-        from ..ui import toast
-        if self.app.llm:
-            self.app.llm.clear_history()
-            toast("清除成功：已清除所有角色的对话历史记录", duration=3000, bg="#075077")
-
-    def _open_diary(self):
-        """用系统默认方式打开当月日记文件夹回调"""
-        base = self.app.diary.base_path
-        folder = base / time.strftime('%Y') / time.strftime('%m')
-        folder.mkdir(parents=True, exist_ok=True)
-        if sys.platform == 'win32':
-            os.startfile(folder)
-        elif sys.platform == 'darwin':
-            subprocess.Popen(['open', folder])
-        else:
-            subprocess.Popen(['xdg-open', folder])
-
-    def _add_hotword(self):
-        """用系统默认方式打开热词文件回调"""
-        
-        target = os.path.abspath('hot.txt')
-        if sys.platform == 'win32':
-            os.startfile(target)
-        elif sys.platform == 'darwin':
-            subprocess.Popen(['open', target])
-        else:
-            subprocess.Popen(['xdg-open', target])
-
-    def _add_context(self):
-        """打开编辑上下文界面回调"""
-        try:
-            from ..ui import on_edit_context
-            on_edit_context()
-        except ImportError as e:
-            logger.warning(f"无法导入上下文菜单处理器: {e}")
 
     def _copy_last_result(self):
         """复制最后一次识别结果到剪贴板回调"""

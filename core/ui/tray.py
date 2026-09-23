@@ -225,7 +225,7 @@ class _TraySystem:
         # 定义菜单
         menu_items = [
             item(f"{self.title}", lambda: None, enabled=False),
-            item('👁️ 显示/隐藏', self.toggle_window, default=True),
+            # 本地改: 去掉「👁️ 显示/隐藏」—— conhost --headless 无窗口启动, 没有控制台窗口可显示
         ]
 
         # 添加额外选项
@@ -242,8 +242,8 @@ class _TraySystem:
                 else:
                     menu_items.append(item(opt_name, opt_func))
 
-        menu_items.append(item('🔄 重启', self.on_restart))
-        menu_items.append(item('❌ 退出', self.on_exit))
+        menu_items.append(item('重启', self.on_restart))
+        menu_items.append(item('退出', self.on_exit))
 
         self.icon = pystray.Icon(
             "console_tray",
