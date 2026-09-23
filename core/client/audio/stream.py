@@ -54,6 +54,8 @@ class AudioStreamManager:
         self.app = app
         self._channels = 1
         self._running = False  # 标志是否应该运行
+        self._last_cb = 0.0    # 本地改 F5: 最近一次音频回调的时刻 (monotonic), 判断流是否"活着但不送数据"
+        self._lock = threading.RLock()   # 本地改 F5: 结束回调 / 按键唤醒 / 默认设备跟随 可能同时重开
 
     @property
     def state(self) -> ClientState:
@@ -72,6 +74,7 @@ class AudioStreamManager:
 
         当音频流接收到新数据时调用，将数据放入异步队列中。
         """
+        self._last_cb = time.monotonic()
         # 只在录音状态时处理数据
         if not self.state.recording:
             return
@@ -104,7 +107,13 @@ class AudioStreamManager:
             return
 
         logger.info("音频流意外结束，正在尝试重启...")
-        self.reopen()
+        # 本地改 F5 (参考上游 PR #460): 这里在 PortAudio 的回调线程里, 不能就地关流重建 (还会卸载正在执行回调的库),
+        # 交给独立线程做
+        threading.Thread(target=self.reopen, daemon=True, name='mic-reopen').start()
+
+    def is_stale(self, max_age: float = 1.0) -> bool:
+        """本地改 F5: 流标着在运行, 但超过 max_age 秒没有任何回调 (锁屏/睡眠/驱动重置后常见), 视为失效"""
+        return self._running and time.monotonic() - self._last_cb > max_age
 
     def start(self) -> Optional[sd.InputStream]:
         """
@@ -113,6 +122,10 @@ class AudioStreamManager:
         Returns:
             创建的音频输入流，如果失败返回 None
         """
+        with self._lock:
+            return self._start_locked()
+
+    def _start_locked(self) -> Optional[sd.InputStream]:
         if self._running:
             logger.debug("音频流已在运行，跳过启动")
             return self.state.stream
@@ -148,6 +161,7 @@ class AudioStreamManager:
             stream.start()
 
             self.state.stream = stream
+            self._last_cb = time.monotonic()   # 刚开的流给 1 个判定周期, 别被当成失效
             self._running = True
             logger.debug(
                 f"音频流已启动: 采样率={self.SAMPLE_RATE}, "
@@ -173,6 +187,10 @@ class AudioStreamManager:
 
     def stop(self) -> None:
         """停止音频流"""
+        with self._lock:
+            self._stop_locked()
+
+    def _stop_locked(self) -> None:
         if not self._running:
             return
 
@@ -193,22 +211,22 @@ class AudioStreamManager:
         Returns:
             新创建的音频输入流
         """
-        logger.info("正在重启音频流...")
+        with self._lock:
+            logger.info("正在重启音频流...")
 
-        # 停止旧流
-        self.stop()
+            # 停止旧流
+            self._stop_locked()
 
-        # 重载 PortAudio，更新设备列表
-        try:
-            sd._terminate()
-            sd._ffi.dlclose(sd._lib)
-            sd._lib = sd._ffi.dlopen(sd._libname)
-            sd._initialize()
-        except Exception as e:
-            logger.warning(f"重载 PortAudio 时发生警告: {e}")
+            # 重新初始化 PortAudio，更新设备列表.
+            # 本地改 F5 (参考上游 PR #460): 不再 dlclose/dlopen 卸载共享库 —— 旧流的 CFFI 回调可能仍引用它
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception as e:
+                logger.warning(f"重载 PortAudio 时发生警告: {e}")
 
-        # 等待设备稳定
-        time.sleep(0.1)
+            # 等待设备稳定
+            time.sleep(0.1)
 
-        # 启动新流
-        return self.start()
+            # 启动新流
+            return self._start_locked()

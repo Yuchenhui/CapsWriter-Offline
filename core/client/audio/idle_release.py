@@ -23,6 +23,8 @@ def wake(app) -> None:
     """按下录音键: 取消释放计时; 流已关则在后台线程重新打开 (start() 要几百 ms, 不能堵键盘钩子)."""
     global _timer
     if _seconds() <= 0:
+        if app.stream.is_stale(1.0):
+            check_stale(app)
         return
     with _lock:
         if _timer is not None:
@@ -31,6 +33,14 @@ def wake(app) -> None:
     if not app.stream._running:
         logger.info('麦克风闲置已释放, 重新打开')
         threading.Thread(target=app.stream.start, daemon=True, name='mic-wake').start()
+    elif app.stream.is_stale(1.0):
+        check_stale(app)
+
+
+def check_stale(app) -> None:
+    """本地改 F5: 流标着在运行却超过 1s 没回调 (锁屏/睡眠/驱动重置后) -> 后台重开. 按下录音键时调用"""
+    logger.warning('音频流在运行但已无数据回调 (锁屏/睡眠后失效?), 后台重开')
+    threading.Thread(target=app.stream.reopen, daemon=True, name='mic-reopen').start()
 
 
 def schedule(app) -> None:
