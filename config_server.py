@@ -36,10 +36,11 @@ class ServerConfig:
     aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
-    gpu_boost_enabled = False                   # 总开关，默认关闭
-    gpu_boost_cmd = 'nvidia-smi -lmc 9000'      # GPU 预加速命令，锁定显存频率到9000MHz（根据实际 GPU 调整）
-    gpu_unboost_cmd = 'nvidia-smi -rmc'         # GPU 取消预加速命令，恢复显存到默认频率
-    gpu_unboost_timeout = 1                     # 空闲多少秒后取消加速
+    gpu_boost_enabled = True                    # 本地改: 4060 Laptop 空闲显存 405MHz, 闲置后首句要等数秒
+    gpu_boost_cmd = 'schtasks /Run /TN CapsWriter-GpuBoost'      # 计划任务以最高权限跑 nvidia-smi -lmc 8001 (pc-tweaks windows/scripts/capswriter-gpu-boost-tasks.ps1 创建), 服务端无需提权
+    gpu_unboost_cmd = 'schtasks /Run /TN CapsWriter-GpuUnboost'  # nvidia-smi -rmc
+    gpu_unboost_timeout = 30                    # 空闲多少秒后取消加速 (本地改: 1 -> 30, 连着说几句不反复锁/解锁)
+    gpu_boost_needs_admin = False               # 本地改: 命令是 schtasks, 不需要服务端自己是管理员
 
     # 集成显卡兼容性补丁
     # os.environ["GGML_VK_DISABLE_COOPMAT"] = "1"   # AMD集显无法加载 GGUF 模型时尝试

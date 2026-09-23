@@ -406,10 +406,17 @@ class ToastWindowRecording:
                 # 纹理深度随响度：安静时几乎静止，说话时才活跃
                 depth = 0.15 + 0.85 * self._level
             else:
-                speech = 0.32 + 0.68 * abs(math.sin(p * 0.9))
-                depth = 1.0
+                # 本地改: 拿不到电平 = 麦克风还没打开 (闲置释放后的冷启动约 0.5s) -> 一排暗点微微呼吸, 表示"预热中";
+                # 原实现画合成的说话般起伏, 会让人以为已经在收音而提前开口
+                step = _WAVE_W / _BAR_COUNT
+                k = 0.5 + 0.5 * math.sin(self._frame * 0.25)
+                d = _DOT_MIN + (_DOT_MAX - _DOT_MIN) * 0.35 * k
+                for i in range(_BAR_COUNT):
+                    x = self._wave_x0 + (i + 0.5) * step
+                    prims.append((x, self._mid_y, x, self._mid_y, d, _DOT_DIM))
+                speech = None
             step = _WAVE_W / _BAR_COUNT
-            for i in range(_BAR_COUNT):
+            for i in range(_BAR_COUNT if speech is not None else 0):
                 t = (i + 0.5) / _BAR_COUNT
                 env = math.sin(math.pi * t)                       # 中间高、两侧低
                 wave = 0.5 + 0.5 * math.sin(t * 11 - p * 3.2) * math.sin(t * 4 + p * 1.6)

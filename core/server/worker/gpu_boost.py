@@ -27,7 +27,7 @@ class GpuBoostManager:
         """处理 GPU 加速命令任务。"""
         if task.command != 'gpu_boost':
             return
-        if not self._check_admin():
+        if getattr(Config, 'gpu_boost_needs_admin', True) and not self._check_admin():
             logger.warning("非管理员权限，无法执行 GPU 加速命令")
             return
         if self.state.gpu_boosted:

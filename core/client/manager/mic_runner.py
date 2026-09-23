@@ -45,6 +45,8 @@ class MicRunner:
         if getattr(Config, 'follow_default_mic', True):
             from core.client.audio import default_device_watch
             default_device_watch.start(self.app)   # 系统里换了默认麦克风就自动跟过去
+        from core.client.audio import idle_release
+        idle_release.schedule(self.app)   # 启动后一直没人说话也要按时释放麦克风
         
         # 4. 开启 UDP 控制 (如果启用)
         if Config.udp_control:
