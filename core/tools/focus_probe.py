@@ -62,7 +62,8 @@ def _prop(el, pid):
         ctypes.windll.oleaut32.VariantClear(ctypes.byref(v))
 
 
-def _probe() -> dict:
+def _focused(props: dict) -> dict:
+    """取前台焦点元素的若干 UIA 属性 (在 _pool 线程里调用)"""
     global _uia
     if _uia is None:
         obj = ctypes.c_void_p()
@@ -75,12 +76,33 @@ def _probe() -> dict:
     if _vcall(_uia, 8, ctypes.HRESULT, ctypes.POINTER(ctypes.c_void_p))(_uia, ctypes.byref(el)) or not el:   # GetFocusedElement
         return {'error': 'no focused element'}
     try:
-        info = {k: _prop(el, pid) for k, pid in _PROPS.items()}
+        return {k: _prop(el, pid) for k, pid in props.items()}
     finally:
         _vcall(el, 2, wintypes.ULONG)(el)   # Release
+
+
+def _probe() -> dict:
+    info = _focused(_PROPS)
+    if 'error' in info:
+        return info
     ct = info.get('ControlType')
     info['ControlType'] = _CT.get(ct, ct)
     return info
+
+
+_VALUE_PROPS = {'hwnd': 30020, 'ClassName': 30012, 'Name': 30005, 'ControlType': 30003,
+                'HasValue': 30043, 'ReadOnly': 30046, 'Value': 30045}
+
+
+def focused_value(timeout: float = 0.5) -> dict:
+    """自动学习用: 焦点元素身份 (hwnd/类名/名称/类型) + 可编辑时的文本值. 读不到值时 Value 为 None"""
+    try:
+        r = _pool.submit(_focused, _VALUE_PROPS).result(timeout=timeout)
+    except Exception as e:
+        return {'error': repr(e)}
+    if 'error' not in r and (not r.get('HasValue') or r.get('ReadOnly')):
+        r['Value'] = None
+    return r
 
 
 def probe(timeout: float = 0.3) -> dict:

@@ -38,6 +38,7 @@ class ClientConfig:
     silence_gate_hold = 10      # 门限开启时, 前 N 秒音频留在客户端等松开再判断 (更长的录音照常边录边发, 不做门限)
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
+    auto_learn_collect = True   # 粘贴后盯住输入框 2 分钟, 你手动改掉的错字记入 learn_candidates.jsonl (只收集, 不自动加词)
     restore_clip = False        # 模拟粘贴后是否恢复剪贴板. 本地改 (2026-09-23): 关 —— 识别结果一直留在剪贴板 (并进 Win+V 历史),
                                 # 光标不在输入框导致没粘上时换个地方 Ctrl+V 即可, 不丢字
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴

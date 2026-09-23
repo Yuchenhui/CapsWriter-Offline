@@ -136,6 +136,10 @@ class TextOutput:
                 controller.tap('v')
         
         logger.debug("已发送粘贴命令 (Ctrl+V)")
+        if getattr(Config, 'auto_learn_collect', False):   # 本地改: 自动学习第一步, 只收集纠错候选
+            from pathlib import Path
+            from core.client import auto_learn
+            auto_learn.watch(text, Path.cwd())
         
         # 还原剪贴板
         if Config.restore_clip and temp is not None:
