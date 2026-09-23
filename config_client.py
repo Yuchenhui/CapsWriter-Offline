@@ -33,6 +33,7 @@ class ClientConfig:
     ]
 
     threshold    = 0.3          # 快捷键触发阈值（秒）
+    stuck_keys_watchdog = False # 卡键看门狗 (15s 自动补发修饰键松开): 会主动注入按键, 单独验证后再开
     silence_rms_gate = 0.002    # 整段录音 RMS 低于此值 (约 -54 dBFS) 视为静音不送识别; 0 = 关. 离麦远小声说话约 0.01-0.05
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
@@ -73,13 +74,13 @@ class ClientConfig:
 
     enable_tray = True          # 客户端默认启用托盘图标功能
     mute_speaker_while_recording = True  # 按住录音时音箱静音, 松开恢复原状态 (防止播放声被收进去)
-    mic_idle_release_sec = 60   # 最后一次录音后多少秒释放麦克风 (占用指示灭、不挡睡眠); 下次按键冷启动约 0.5s, 胶囊显示暗点=预热中. 0 = 常开
+    mic_idle_release_sec = 0    # ⚠️ 必须为 0: 运行中开关音频流会让键盘钩子超时, 右 Alt 按下漏给系统 -> Alt 卡死 (2026-09-23 两次事故均在启动后第 60s). 麦克风常开
     follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
     gpu_unboost_cmd = 'schtasks /Run /TN CapsWriter-GpuUnboost'   # 与 config_server 一致; 客户端在关服务端/启动时兜底解锁
     auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
 
     # 日志配置
-    log_level = 'INFO'          # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    log_level = 'DEBUG'         # 事故排查期间保持 DEBUG; 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
 
     mic_seg_duration = 60       # 麦克风听写时分段长度：60秒
     mic_seg_overlap = 4         # 麦克风听写时分段重叠：4秒

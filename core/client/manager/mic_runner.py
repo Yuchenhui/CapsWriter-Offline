@@ -30,7 +30,8 @@ class MicRunner:
         # -1. 卡键兜底: 上次若把某个修饰键的松开吞了, 这里先补发; 看门狗持续盯着
         from core.client import stuck_keys
         stuck_keys.release()
-        stuck_keys.start_watchdog(self.app)
+        if getattr(Config, 'stuck_keys_watchdog', False):
+            stuck_keys.start_watchdog(self.app)
 
         # 0. 恢复托盘里改过的开关 (user_state.json), 再托管服务端 (隐藏子进程, 客户端即整个程序)
         from core.client import user_state

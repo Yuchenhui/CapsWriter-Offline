@@ -52,7 +52,7 @@ class GpuBoostManager:
         if idle_time <= Config.gpu_unboost_timeout:
             return
 
-        if not self._check_admin():
+        if getattr(Config, 'gpu_boost_needs_admin', True) and not self._check_admin():
             logger.warning("非管理员权限，无法执行 GPU 取消加速命令")
             return
 
