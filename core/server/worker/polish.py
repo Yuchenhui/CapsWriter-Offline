@@ -15,11 +15,16 @@ import re
 import json
 import os
 import time
+import ssl
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from config_server import ServerConfig as Config
 from core.tools.terms import load_terms
 from . import logger
+
+_SSL_CTX = ssl.create_default_context()   # 建一次: 每次新建要加载证书库, 实测 11.8ms CPU
+_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='polish')
 
 _SYSTEM = """你是语音识别（ASR）结果的校对器。输入是一句由语音自动转写的文字，错误来自"听错"，不是"写错"。
 
@@ -66,7 +71,7 @@ def _call_api(text: str) -> str:
     }
     req = urllib.request.Request(Config.polish_api_url, json.dumps(body).encode('utf-8'),
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=Config.polish_timeout) as r:
+    with urllib.request.urlopen(req, timeout=Config.polish_timeout, context=_SSL_CTX) as r:
         return (json.load(r)['choices'][0]['message'].get('content') or '').strip()
 
 
@@ -76,7 +81,8 @@ def polish(text: str) -> str:
         return text
     t0 = time.time()
     try:
-        out = _call_api(text)
+        # 硬上限: urlopen 的 timeout 是每次 socket 操作各自 3s, 连接+读可能叠加超过; 这里按总时长截断
+        out = _POOL.submit(_call_api, text).result(timeout=Config.polish_timeout)
     except Exception as e:
         logger.warning(f'二次整理失败, 用原文 ({time.time() - t0:.2f}s): {e}')
         return text

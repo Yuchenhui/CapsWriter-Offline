@@ -95,6 +95,8 @@ class AudioRecorder:
             self._start_time = 0.0
             self._duration = 0.0
             self._cache = []
+            self._sumsq = 0.0   # 本地改: 静音门限用, 累计能量
+            self._nsamp = 0
             
             # 音频文件管理
             file_path = None
@@ -110,6 +112,9 @@ class AudioRecorder:
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
+                    _d = task['data']
+                    self._sumsq += float(np.sum(np.square(_d, dtype=np.float64)))
+                    self._nsamp += int(_d.size)
                     # 在阈值之前积攒音频数据
                     if task['time'] - self._start_time < Config.threshold:
                         self._cache.append(task['data'])
@@ -154,6 +159,20 @@ class AudioRecorder:
                     asyncio.create_task(self._send_message(message))
                     
                 elif task['type'] == 'finish':
+                    # 本地改 (审计 F6): 整段都是静音 (RMS < silence_rms_gate) 且还没发过分片, 直接作废:
+                    # Qwen3-ASR 对静音会编一句无关的话, 或反复重试空转约 30s
+                    rms = (self._sumsq / self._nsamp) ** 0.5 if self._nsamp else 0.0
+                    gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
+                    if gate and rms < gate and self._duration == 0.0:
+                        import math
+                        db = 20 * math.log10(rms) if rms > 0 else -120
+                        logger.info(f"录音太安静 (RMS {db:.0f} dBFS < 门限), 不送识别, 任务ID: {self.task_id}")
+                        console.print(f'    录音太安静 ({db:.0f} dBFS), 未识别')
+                        self._cache.clear()
+                        from core.client.ui.recording_toast import close_active
+                        close_active()
+                        break
+
                     # 如果有缓存的数据未发送，先发送缓存
                     if self._cache:
                         data = np.concatenate(self._cache)

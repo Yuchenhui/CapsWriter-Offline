@@ -10,6 +10,7 @@
 """
 import asyncio
 import platform
+import time
 from contextlib import contextmanager
 import pyclip
 from pynput import keyboard
@@ -138,3 +139,58 @@ async def paste_text(text: str, restore_clipboard: bool = True):
         await asyncio.sleep(0.1)
         pyclip.copy(original)
         logger.debug("剪贴板已恢复")
+
+
+# ---- 本地改: ctypes 直写剪贴板 (pyclip 做不到"不进历史"标记) -------------------
+import ctypes as _ct
+from ctypes import wintypes as _wt
+_u32 = _ct.WinDLL('user32'); _k32 = _ct.WinDLL('kernel32')
+_u32.GetClipboardSequenceNumber.restype = _wt.DWORD
+_k32.GlobalAlloc.restype = _ct.c_void_p
+_k32.GlobalLock.restype = _ct.c_void_p
+_k32.GlobalLock.argtypes = [_ct.c_void_p]
+_k32.GlobalUnlock.argtypes = [_ct.c_void_p]
+_k32.GlobalFree.argtypes = [_ct.c_void_p]
+_u32.SetClipboardData.restype = _ct.c_void_p
+_u32.SetClipboardData.argtypes = [_wt.UINT, _ct.c_void_p]
+_u32.RegisterClipboardFormatW.restype = _wt.UINT
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+
+
+def clipboard_seq() -> int:
+    """剪贴板序号: 别的程序一写就变, 用来判断恢复前剪贴板有没有被人动过"""
+    return _u32.GetClipboardSequenceNumber()
+
+
+def _put(fmt: int, data: bytes) -> None:
+    h = _k32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+    if not h:
+        raise OSError('GlobalAlloc 失败')
+    ptr = _k32.GlobalLock(h)
+    _ct.memmove(ptr, data, len(data))
+    _k32.GlobalUnlock(h)
+    if not _u32.SetClipboardData(fmt, h):
+        _k32.GlobalFree(h)
+        raise OSError(f'SetClipboardData({fmt}) 失败')
+
+
+def set_clipboard_text(text: str, exclude_history: bool = True) -> int:
+    """写文本到剪贴板. exclude_history: 同时放入 ExcludeClipboardContentFromMonitorProcessing /
+    CanIncludeInClipboardHistory=0, 识别文本 (以及恢复时的原内容) 不进 Win+V 历史、不上云. 返回写入后的序号."""
+    for _ in range(10):   # 剪贴板被别的进程短暂占用时重试
+        if _u32.OpenClipboard(None):
+            break
+        time.sleep(0.02)
+    else:
+        raise OSError('OpenClipboard 失败')
+    try:
+        _u32.EmptyClipboard()
+        _put(CF_UNICODETEXT, (text + '\0').encode('utf-16-le'))
+        if exclude_history:
+            _put(_u32.RegisterClipboardFormatW('ExcludeClipboardContentFromMonitorProcessing'), b'\x00\x00\x00\x00')
+            _put(_u32.RegisterClipboardFormatW('CanIncludeInClipboardHistory'), b'\x00\x00\x00\x00')
+            _put(_u32.RegisterClipboardFormatW('CanUploadToCloudClipboard'), b'\x00\x00\x00\x00')
+    finally:
+        _u32.CloseClipboard()
+    return clipboard_seq()

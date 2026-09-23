@@ -33,6 +33,7 @@ class ClientConfig:
     ]
 
     threshold    = 0.3          # 快捷键触发阈值（秒）
+    silence_rms_gate = 0.002    # 整段录音 RMS 低于此值 (约 -54 dBFS) 视为静音不送识别; 0 = 关. 离麦远小声说话约 0.01-0.05
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
     restore_clip = True         # 模拟粘贴后是否恢复剪贴板
