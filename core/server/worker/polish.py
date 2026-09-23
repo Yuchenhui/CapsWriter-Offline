@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from config_server import ServerConfig as Config
 from core.tools.terms import load_terms
+from core.tools import polish_providers
 from . import logger
 
 _SSL_CTX = ssl.create_default_context()   # 建一次: 每次新建要加载证书库, 实测 11.8ms CPU
@@ -63,12 +64,11 @@ _SYSTEM = """你是语音识别（ASR）结果的校对器。输入是一句由�
 只输出校对后的那一句话，不要任何解释，不要加引号或"输出："前缀。"""
 
 
-def _call_api(text: str) -> str:
-    key = os.environ.get(Config.polish_api_key_env, '')
-    if not key:
-        raise RuntimeError(f'环境变量 {Config.polish_api_key_env} 未设置')
+def _call_api(text: str, pid: str) -> str:
+    prov = polish_providers.PROVIDERS[pid]
+    key = polish_providers.api_key(pid)
     body = {
-        'model': Config.polish_model,
+        'model': prov['model'],
         'messages': [
             {'role': 'system', 'content': _SYSTEM.format(terms=load_terms() or getattr(Config, 'polish_terms', '') or '无')},
             {'role': 'user', 'content': text},
@@ -77,22 +77,24 @@ def _call_api(text: str) -> str:
         'temperature': 0,
         'thinking': {'type': 'disabled'},   # 思考开着要多等几秒, 这个任务用不着
     }
-    req = urllib.request.Request(Config.polish_api_url, json.dumps(body).encode('utf-8'),
+    req = urllib.request.Request(prov['url'], json.dumps(body).encode('utf-8'),
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
     with _OPENER.open(req, timeout=Config.polish_timeout) as r:
-        return (json.load(r)['choices'][0]['message'].get('content') or '').strip()
+        out = json.load(r)['choices'][0]['message'].get('content') or ''
+    return re.sub(r'<think>.*?</think>', '', out, flags=re.S).strip()   # 有的服务商关了思考仍可能夹带思考块
 
 
-def polish(text: str) -> str:
-    """未启用 / 空文本 / 任何失败都原样返回."""
-    if not getattr(Config, 'polish_enabled', False) or not text.strip():
+def polish(text: str, choice=True) -> str:
+    """choice: 客户端选的服务商 id (兼容旧 bool). 未启用 / 空文本 / 任何失败都原样返回."""
+    pid = polish_providers.resolve(choice)
+    if not pid or not getattr(Config, 'polish_enabled', False) or not text.strip():
         return text
     t0 = time.time()
     try:
         # 硬上限: urlopen 的 timeout 是每次 socket 操作各自 3s, 连接+读可能叠加超过; 这里按总时长截断
-        out = _POOL.submit(_call_api, text).result(timeout=Config.polish_timeout)
+        out = _POOL.submit(_call_api, text, pid).result(timeout=Config.polish_timeout)
     except Exception as e:
-        logger.warning(f'二次整理失败, 用原文 ({time.time() - t0:.2f}s): {e}')
+        logger.warning(f'二次整理 [{pid}] 失败, 用原文 ({time.time() - t0:.2f}s): {e}')
         return text
     out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
     if '\n' not in text and '\n' in out:                        # 原文单行, 输出多出换行 -> 贴进终端可能执行半条命令
@@ -106,5 +108,5 @@ def polish(text: str) -> str:
         logger.debug(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
         return text
     if out != text:
-        logger.debug(f'二次整理 ({change:.0%}, {dt:.2f}s): {text} --> {out}')
+        logger.debug(f'二次整理 [{pid}] ({change:.0%}, {dt:.2f}s): {text} --> {out}')
     return out

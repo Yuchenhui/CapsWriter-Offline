@@ -21,9 +21,7 @@ class ServerConfig:
 
     # 二次整理: 在线 LLM 只修听错的术语/同音字/标点 (core/server/worker/polish.py); 客户端托盘可随时开关
     polish_enabled = True
-    polish_api_url = 'https://api.deepseek.com/chat/completions'   # 任意 OpenAI 兼容接口
-    polish_model = 'deepseek-v4-flash'
-    polish_api_key_env = 'DEEPSEEK_API_KEY'   # key 只从环境变量读, 不写进仓库
+    # 服务商 (接口 / 模型 / key 来源) 在 core/tools/polish_providers.py, 客户端托盘「二次整理」里选
     polish_timeout = 3.0        # 秒; 超时/断网直接用原文
     polish_max_change = 0.2     # 改动比例超过此值视为改过头, 退回原文
     # 术语表在安装目录 terms.txt (与客户端识别 context 共用, 保存即生效)

@@ -26,6 +26,9 @@ def load() -> None:
     for k in KEYS:
         if k in data:
             setattr(Config, k, data[k])
+    # 旧版 polish 是 True/False, 换成服务商 id
+    from core.tools.polish_providers import resolve
+    Config.polish = resolve(Config.polish)
 
 
 def save() -> None:

@@ -35,7 +35,7 @@ class AudioMessage:
     seg_overlap: float = 2.0
     context: str = ''
     language: str = 'auto'
-    polish: bool = True          # 是否做二次整理 (客户端托盘开关)
+    polish: object = True        # 二次整理: 服务商 id ('' = 不整理); 旧版客户端传 True/False, 服务端用 polish_providers.resolve 兼容
 
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""

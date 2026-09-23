@@ -136,7 +136,7 @@ class TaskPipeline:
             raw_text = result.text
             if task.type == 'mic' and task.polish:
                 # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
-                result.text = polish(result.text)
+                result.text = polish(result.text, task.polish)
             result.text = self.formatter.format(result.text)
             result.text_accu = self.formatter.format(result.text_accu)
             console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)

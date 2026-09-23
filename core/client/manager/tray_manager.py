@@ -40,7 +40,7 @@ class TrayManager:
                 # 本地改 (2026-09-23 精简): 去掉 日记 (录音已关) / 上下文 (由 terms.txt 取代) / 清除记忆 (LLM 已关) /
                 # 重开音频 (流失效自动重开 + 麦克风菜单 + 重启 已覆盖); 模型、词库改二级菜单
                 ('复制结果', self._copy_last_result),
-                ('二次整理', self._toggle_polish, lambda: Config.polish),
+                ('二次整理', 'submenu', self._polish_items),
                 ('麦克风', 'submenu', self._mic_items),
                 ('模型', 'submenu', self._model_items),
                 ('词库', 'submenu', self._wordlist_items),
@@ -145,12 +145,25 @@ class TrayManager:
         """托盘切换识别模型: 改 config_server.py 并重启服务端, 约 5-15 秒后生效"""
         server_launcher.switch_model(self.app.base_dir, model_type)
 
-    def _toggle_polish(self):
-        """二次整理开关: 下一句起生效 (随录音消息发给服务端), 重启客户端后回到 config 默认值"""
-        Config.polish = not Config.polish
-        user_state.save()   # 持久化, 重启后保持
-        logger.info(f"二次整理: {'开' if Config.polish else '关'}")
+    def _polish_items(self):
+        """托盘「二次整理」子菜单: 关 / 各服务商, 单选, 下一句起生效, 存 user_state.json"""
+        from core.tools.polish_providers import PROVIDERS
+        return [('关', self._polish_action(''), lambda: not Config.polish)] + [
+            (p['name'], self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()]
 
+    @staticmethod
+    def _polish_checked(pid):
+        def checked():
+            return Config.polish == pid
+        return checked
+
+    @staticmethod
+    def _polish_action(pid):
+        def action():
+            Config.polish = pid
+            user_state.save()
+            logger.info(f"二次整理: {pid or '关'}")
+        return action
 
     def _copy_last_result(self):
         """复制最后一次识别结果到剪贴板回调"""
