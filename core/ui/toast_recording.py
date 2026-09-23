@@ -223,6 +223,7 @@ class ToastWindowRecording:
         self._after_id: Optional[str] = None
         self._level = 0.0              # 平滑后的真实电平（0~1）
         self._gain = _level_gain()     # 灵敏度（读配置，创建时定）
+        self._peak = 0.0               # 本地改: 自动增益用的近期峰值 (缓慢衰减)
         self._gate = _level_gate()     # 噪声门（读配置，创建时定）
         # 波形相位起点随机，避免每次录音从同一形状开始
         self._phase0 = random.uniform(0, 6.283)
@@ -305,13 +306,21 @@ class ToastWindowRecording:
             fill=_TEXT_FG, font=self._font,
         )
 
-    def _round_rect(self, x1, y1, x2, y2, r, **kw) -> None:
-        pts = [
-            x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
-            x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
-            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
-        ]
-        self.canvas.create_polygon(pts, smooth=True, **kw)
+    def _round_rect(self, x1, y1, x2, y2, r, fill='', outline='', width=1, **kw) -> None:
+        """本地改: 真圆角 (r 取到高度一半即两端正半圆). 原 smooth polygon 的样条圆角弧度不足"""
+        c = self.canvas
+        r = min(r, (y2 - y1) / 2, (x2 - x1) / 2)
+        d = 2 * r
+        corners = ((x1, y1, 90), (x2 - d, y1, 0), (x2 - d, y2 - d, 270), (x1, y2 - d, 180))
+        for x, y, start in corners:
+            c.create_arc(x, y, x + d, y + d, start=start, extent=90, style='pieslice', fill=fill, outline=fill, **kw)
+        c.create_rectangle(x1 + r, y1, x2 - r, y2, fill=fill, outline=fill, **kw)
+        c.create_rectangle(x1, y1 + r, x2, y2 - r, fill=fill, outline=fill, **kw)
+        if outline:
+            for x, y, start in corners:
+                c.create_arc(x, y, x + d, y + d, start=start, extent=90, style='arc', outline=outline, width=width, **kw)
+            for seg in ((x1 + r, y1, x2 - r, y1), (x1 + r, y2, x2 - r, y2), (x1, y1 + r, x1, y2 - r), (x2, y1 + r, x2, y2 - r)):
+                c.create_line(*seg, fill=outline, width=width, **kw)
 
     def _tick(self) -> None:
         """每帧：淡入 + 波形跳动. 关闭时窗口还在但画布已销毁的竞态 -> TclError, 直接停帧"""
@@ -386,7 +395,11 @@ class ToastWindowRecording:
                 # 噪声门：减掉底噪，静音时归零，避免没说话也在动
                 eff = raw - self._gate
                 eff = eff if eff > 0.0 else 0.0
-                target = min(1.0, eff * self._gain) ** _LEVEL_GAMMA
+                # 本地改: 自动增益 —— 离麦克风远时电平小, 固定增益下波纹几乎不动.
+                # 按近期峰值归一化 (峰值每帧衰减 3%, 约 1 秒半衰), 增益最多放大到配置值的 6 倍, 免得放大底噪
+                self._peak = max(eff, self._peak * 0.97)
+                gain = min(max(self._gain, 0.8 / self._peak), self._gain * 6) if self._peak > 0 else self._gain
+                target = min(1.0, eff * gain) ** _LEVEL_GAMMA
                 k = _LEVEL_ATTACK if target > self._level else _LEVEL_DECAY
                 self._level += (target - self._level) * k
                 speech = _LEVEL_FLOOR + (1.0 - _LEVEL_FLOOR) * self._level

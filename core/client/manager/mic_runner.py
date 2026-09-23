@@ -27,7 +27,9 @@ class MicRunner:
 
     def start_resources(self):
         """初始化麦克风模式特有资源 (音频硬件、快捷键、UI 托盘)"""
-        # 0. 托管服务端 (隐藏子进程, 客户端即整个程序)
+        # 0. 恢复托盘里改过的开关 (user_state.json), 再托管服务端 (隐藏子进程, 客户端即整个程序)
+        from core.client import user_state
+        user_state.load()
         from core.client import server_launcher
         server_launcher.start(self.app.base_dir)
 

@@ -48,7 +48,7 @@ class ClientConfig:
     recording_toast_margin = 16  # 胶囊底边距任务栏像素
     recording_toast_opacity = 0.75  # 不透明度 0.2~1.0 (本地改: 原 0.88, 配合仿玻璃)
     recording_toast_sensitivity = 12.0  # 波形灵敏度，不够跳调大、太满调小
-    recording_toast_noise_gate = 0.010  # 噪声门，没说话也在动就调大 (如 0.02)
+    recording_toast_noise_gate = 0.006  # 噪声门，没说话也在动就调大 (如 0.02); 本地改: 0.010->0.006, 离麦远时小声也能过门
     
     context = ''                # 兜底; 实际取安装目录 terms.txt (只对 Qwen3-ASR / Fun-ASR-Nano 生效)
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）
@@ -65,7 +65,7 @@ class ClientConfig:
     hot_similar = 0.6           # RAG 相似热词阈值（低阈值，用于 LLM 上下文）
     hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
-    polish = True               # 服务端二次整理 (小 LLM 修同音字/术语/标点); 托盘「🪄 二次整理」可随时切换
+    polish = True               # 服务端二次整理 (在线 LLM 修听错的术语/同音字); 默认值, 托盘「🪄 二次整理」改过后以 user_state.json 为准
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键

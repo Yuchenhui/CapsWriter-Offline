@@ -3,7 +3,7 @@ import os
 from . import logger
 import os, sys, subprocess, time
 from config_client import ClientConfig as Config
-from core.client import server_launcher
+from core.client import server_launcher, user_state
 
 
 class TrayManager:
@@ -75,6 +75,7 @@ class TrayManager:
     def _toggle_polish(self):
         """二次整理开关: 下一句起生效 (随录音消息发给服务端), 重启客户端后回到 config 默认值"""
         Config.polish = not Config.polish
+        user_state.save()   # 持久化, 重启后保持
         logger.info(f"二次整理: {'开' if Config.polish else '关'}")
 
     def _restart_audio(self):
