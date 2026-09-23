@@ -27,6 +27,11 @@ class MicRunner:
 
     def start_resources(self):
         """初始化麦克风模式特有资源 (音频硬件、快捷键、UI 托盘)"""
+        # -1. 卡键兜底: 上次若把某个修饰键的松开吞了, 这里先补发; 看门狗持续盯着
+        from core.client import stuck_keys
+        stuck_keys.release()
+        stuck_keys.start_watchdog(self.app)
+
         # 0. 恢复托盘里改过的开关 (user_state.json), 再托管服务端 (隐藏子进程, 客户端即整个程序)
         from core.client import user_state
         user_state.load()

@@ -89,6 +89,9 @@ class CapsWriterClient:
         # 1. 停止核心运行组件
         self.udp.stop()
         self.shortcut.stop()
+        from core.client import stuck_keys
+        stuck_keys.stop()
+        stuck_keys.release()   # 钩子已卸, 若正按着热键, 补发松开让系统状态配对
         self.stream.stop()
 
         # 2. 托盘资源

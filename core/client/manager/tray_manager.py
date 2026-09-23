@@ -3,7 +3,7 @@ import os
 from . import logger
 import os, sys, subprocess, time
 from config_client import ClientConfig as Config
-from core.client import server_launcher, user_state
+from core.client import server_launcher, user_state, stuck_keys
 
 
 class TrayManager:
@@ -44,6 +44,7 @@ class TrayManager:
                 ('🧹 清除记忆', self._clear_memory),
                 ('♻️ 重开音频', self._restart_audio),
                 ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
+                ('🩹 释放卡住的按键', self._release_stuck_keys),
             ] + [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
         )
         logger.info("托盘图标已启用" if ok else "托盘图标未启用 (见上方原因)")
@@ -71,6 +72,10 @@ class TrayManager:
     def _switch_model(self, model_type):
         """托盘切换识别模型: 改 config_server.py 并重启服务端, 约 5-15 秒后生效"""
         server_launcher.switch_model(self.app.base_dir, model_type)
+
+    def _release_stuck_keys(self):
+        """修饰键卡住 (打字无效) 时用鼠标点这里: 给 Ctrl/Shift/Alt/Win 补发松开"""
+        stuck_keys.release()
 
     def _toggle_polish(self):
         """二次整理开关: 下一句起生效 (随录音消息发给服务端), 重启客户端后回到 config 默认值"""
