@@ -37,8 +37,8 @@ class ServerConfig:
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
     gpu_boost_enabled = False                   # ⚠️ 2026-09-23 右 Alt 卡死根因: 计划任务以最高权限起 nvidia-smi (控制台程序, 弹提权窗口抢前台), 期间按住的右 Alt 自动重复绕过本程序钩子进了系统, 松开却被钩子拦下 -> Alt 卡死. 不要再开
-    gpu_boost_cmd = 'schtasks /Run /TN CapsWriter-GpuBoost'      # 计划任务以最高权限跑 nvidia-smi -lmc 8001 (pc-tweaks windows/scripts/capswriter-gpu-boost-tasks.ps1 创建), 服务端无需提权
-    gpu_unboost_cmd = 'schtasks /Run /TN CapsWriter-GpuUnboost'  # nvidia-smi -rmc
+    gpu_boost_cmd = ''                          # 计划任务已删除 (2026-09-23)
+    gpu_unboost_cmd = ''
     gpu_unboost_timeout = 30                    # 空闲多少秒后取消加速 (本地改: 1 -> 30, 连着说几句不反复锁/解锁)
     gpu_boost_needs_admin = False               # 本地改: 命令是 schtasks, 不需要服务端自己是管理员
 
