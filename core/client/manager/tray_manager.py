@@ -3,6 +3,7 @@ import os
 from . import logger
 import os, sys, subprocess, time
 from config_client import ClientConfig as Config
+from core.client import server_launcher
 
 
 class TrayManager:
@@ -43,7 +44,7 @@ class TrayManager:
                 ('🧹 清除记忆', self._clear_memory),
                 ('♻️ 重开音频', self._restart_audio),
                 ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
-            ]
+            ] + [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
         )
         logger.info("托盘图标已启用")
 
@@ -58,6 +59,18 @@ class TrayManager:
             logger.info("TrayManager: 托盘图标已卸载")
         except Exception as e:
             logger.debug(f"TrayManager: 卸载托盘时发生错误: {e}")
+
+    def _model_item(self, model_type, name):
+        """托盘单选项. 回调必须零参数闭包: pystray 按参数个数决定是否传 (icon, item), 带默认参数的 lambda 会被覆盖"""
+        def action():
+            self._switch_model(model_type)
+        def checked():
+            return server_launcher.current_model(self.app.base_dir) == model_type
+        return (f'模型: {name}', action, checked)
+
+    def _switch_model(self, model_type):
+        """托盘切换识别模型: 改 config_server.py 并重启服务端, 约 5-15 秒后生效"""
+        server_launcher.switch_model(self.app.base_dir, model_type)
 
     def _toggle_polish(self):
         """二次整理开关: 下一句起生效 (随录音消息发给服务端), 重启客户端后回到 config 默认值"""

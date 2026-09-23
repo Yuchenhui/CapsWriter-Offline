@@ -28,7 +28,7 @@ class ServerConfig:
     polish_max_change = 0.2     # 改动比例超过此值视为改过头, 退回原文
     polish_terms = 'WSL, Debian, PostgreSQL, MySQL, Redis, Docker, Kubernetes, VS Code, Claude Code, CapsWriter, Qwen3, DeepSeek, MiniMax, SenseVoice, AutoHotkey, rockbenben, GitHub, PowerShell, Client, Server'
 
-    enable_tray = True        # 是否启用托盘图标功能
+    enable_tray = False       # 由客户端托管时不需要自己的托盘图标 (独立运行服务端时改回 True)
     hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
 
     # 日志配置

@@ -314,13 +314,15 @@ class ToastWindowRecording:
         self.canvas.create_polygon(pts, smooth=True, **kw)
 
     def _tick(self) -> None:
-        """每帧：淡入 + 红点呼吸 + 波形跳动"""
+        """每帧：淡入 + 波形跳动. 关闭时窗口还在但画布已销毁的竞态 -> TclError, 直接停帧"""
         try:
             if not self.window.winfo_exists():
                 return
+            self._tick_frame()
         except tk.TclError:
             return
 
+    def _tick_frame(self) -> None:
         self._frame += 1
 
         # 状态切换：update_text 可能从任意线程置 _mode，重绘只在本 Tk 线程做

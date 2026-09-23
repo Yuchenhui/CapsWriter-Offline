@@ -27,6 +27,10 @@ class MicRunner:
 
     def start_resources(self):
         """初始化麦克风模式特有资源 (音频硬件、快捷键、UI 托盘)"""
+        # 0. 托管服务端 (隐藏子进程, 客户端即整个程序)
+        from core.client import server_launcher
+        server_launcher.start(self.app.base_dir)
+
         # 1. 托盘
         self.tray_manager.start()
 
@@ -36,6 +40,9 @@ class MicRunner:
         # 3. 开启运行组件 (音频流、快捷键监听)
         self.app.stream.start()
         self.app.shortcut.start()
+        if getattr(Config, 'follow_default_mic', True):
+            from core.client.audio import default_device_watch
+            default_device_watch.start(self.app)   # 系统里换了默认麦克风就自动跟过去
         
         # 4. 开启 UDP 控制 (如果启用)
         if Config.udp_control:

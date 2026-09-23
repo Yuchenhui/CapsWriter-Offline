@@ -101,6 +101,10 @@ class CapsWriterClient:
         # 4. 关闭 WebSocket 连接
         self.ws.close_sync()
 
+        # 4.5 关闭托管的服务端 (只关自己拉起的)
+        from core.client import server_launcher
+        server_launcher.stop()
+
         # 5. 重置 State
         try:
             self.state.reset()

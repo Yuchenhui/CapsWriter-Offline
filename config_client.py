@@ -50,7 +50,7 @@ class ClientConfig:
     recording_toast_sensitivity = 12.0  # 波形灵敏度，不够跳调大、太满调小
     recording_toast_noise_gate = 0.010  # 噪声门，没说话也在动就调大 (如 0.02)
     
-    context = '千问三, Qwen3, Claude Code, CapsWriter'  # Qwen3-ASR 不读 hot-server.txt, 只能靠这里给上下文; 提示词上下文，用于辅助 Fun-ASR-Nano 模型识别（例如输入人名、地名、专业术语等）
+    context = 'WSL, Debian, PostgreSQL, MySQL, Redis, Docker, Kubernetes, VS Code, Claude Code, CapsWriter, Qwen3, DeepSeek, MiniMax, SenseVoice, AutoHotkey, rockbenben, GitHub, PowerShell, Client, Server'  # 只对 Qwen3-ASR / Fun-ASR-Nano 生效 (SenseVoice 不读); 与 config_server.polish_terms 保持一致
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）
 
     trash_punc = '，。,.'       # 识别结果要消除的末尾标点
@@ -71,6 +71,8 @@ class ClientConfig:
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 
     enable_tray = True          # 客户端默认启用托盘图标功能
+    follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
+    auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
 
     # 日志配置
     log_level = 'DEBUG'          # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
