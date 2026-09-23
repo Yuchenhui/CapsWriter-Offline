@@ -83,6 +83,7 @@ def gpu_unboost() -> None:
 # ---- 托盘切换识别模型 ------------------------------------------------------
 MODELS = {  # model_type -> (菜单名, 判定模型已安装的目录)
     'sensevoice': ('SenseVoice (快)', 'models/SenseVoice-Small/Sensevoice-Small-ONNX'),
+    'fun_asr_nano': ('Fun-ASR-Nano (均衡)', 'models/Fun-ASR-Nano/Fun-ASR-Nano-GGUF'),
     'qwen_asr': ('Qwen3-ASR 1.7B (准)', 'models/Qwen3-ASR/Qwen3-ASR-1.7B'),
 }
 _MODEL_RE = re.compile(r"^(\s*model_type\s*=\s*)'([^']*)'", re.M)

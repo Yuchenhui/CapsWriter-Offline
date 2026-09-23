@@ -133,7 +133,7 @@ class FunASRNanoGGUFArgs:
     tokens_path = ModelPaths.fun_asr_nano_gguf_token.as_posix()
 
     # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = 'DML'       # 本地改: 编码器上显存省内存 (与 SenseVoice / Qwen3 一致); ONNX 推理后端 (CPU, DML)
     llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
     vulkan_force_fp32 = False   # 是否强制 FP32 计算（如果 GPU 是 Intel 集显且出现精度溢出，可设为 True）
     
