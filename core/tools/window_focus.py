@@ -34,20 +34,23 @@ def activate_window_under_cursor() -> None:
         return
     pt = wintypes.POINT()
     if not user32.GetCursorPos(ctypes.byref(pt)):
-        return
+        return 'no-cursor'
     hwnd = user32.GetAncestor(user32.WindowFromPoint(pt), GA_ROOT)
     fg = user32.GetForegroundWindow()
     if not hwnd or hwnd == fg:
-        return
+        return 'already-fg'
     if user32.SetForegroundWindow(hwnd):
-        return
+        return 'direct'
     # 前台锁: 只有"收到最后一次输入"的进程能抢前台. 挂到当前前台线程的输入队列上再试一次.
     fg_tid = user32.GetWindowThreadProcessId(fg, None)
     my_tid = kernel32.GetCurrentThreadId()
     attached = bool(fg_tid) and fg_tid != my_tid and user32.AttachThreadInput(my_tid, fg_tid, True)
+    ok = False
     try:
-        if not user32.SetForegroundWindow(hwnd):
+        ok = user32.SetForegroundWindow(hwnd)
+        if not ok:
             logger.debug(f'激活鼠标下窗口失败 hwnd={hwnd} (提权窗口 / 前台锁)')
     finally:
         if attached:
             user32.AttachThreadInput(my_tid, fg_tid, False)
+    return f"attach={'yes' if attached else 'no'} {'ok' if ok else 'fail'}"

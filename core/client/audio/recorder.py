@@ -95,6 +95,7 @@ class AudioRecorder:
             self._start_time = 0.0
             self._duration = 0.0
             self._cache = []
+            self._sumsq, self._nsamp, self._peak = 0.0, 0, 0.0   # 诊断: 本句音量
             
             # 音频文件管理
             file_path = None
@@ -110,6 +111,11 @@ class AudioRecorder:
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
+                    _d = task['data']
+                    if _d.size:
+                        self._sumsq += float(np.sum(np.square(_d, dtype=np.float64)))
+                        self._nsamp += int(_d.size)
+                        self._peak = max(self._peak, float(np.max(np.abs(_d))))
                     # 在阈值之前积攒音频数据
                     if task['time'] - self._start_time < Config.threshold:
                         self._cache.append(task['data'])
@@ -154,6 +160,10 @@ class AudioRecorder:
                     asyncio.create_task(self._send_message(message))
                     
                 elif task['type'] == 'finish':
+                    if self._nsamp:
+                        _db = lambda v: 20 * np.log10(v) if v > 0 else -120.0
+                        logger.info(f"本句音量: 平均 {_db((self._sumsq / self._nsamp) ** 0.5):.1f} dBFS, "
+                                    f"峰值 {_db(self._peak):.1f} dBFS, 任务ID: {self.task_id}")
                     # 如果有缓存的数据未发送，先发送缓存
                     if self._cache:
                         data = np.concatenate(self._cache)

@@ -124,7 +124,22 @@ class ShortcutManager:
 
             return True
 
-        return win32_event_filter
+        from core.client import key_trace   # 诊断: 包一层记录, 原过滤逻辑不变
+        key_trace.start()
+
+        def traced_filter(msg, data):
+            t0 = time.perf_counter()
+            outcome = 'pass'
+            try:
+                return win32_event_filter(msg, data)
+            except BaseException as e:
+                outcome = 'suppress' if type(e).__name__ == 'SuppressException' else f'error {e!r}'
+                raise
+            finally:
+                if msg in KEYBOARD_MESSAGES:
+                    key_trace.hook(msg, data, outcome, (time.perf_counter() - t0) * 1000)
+
+        return traced_filter
 
     def create_mouse_filter(self):
         """创建鼠标事件过滤器"""

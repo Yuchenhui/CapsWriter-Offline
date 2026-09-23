@@ -24,6 +24,10 @@ if ($NoRestart) { 'copied, no restart'; return }
 $log = "$InstallDir\logs\server_latest.log"
 # server_latest.log 是追加写的, 只看重启之后新增的行, 否则旧的"就绪"行会让客户端过早启动
 $skip = @(Get-Content $log -EA SilentlyContinue).Count
+# 2026-09-23 事故: 用户按着右 Alt 时杀客户端, 新钩子只看到"松开"并吞掉 -> Alt 卡死全键盘失灵.
+# 钩子侧已改为放行未见按下的松开; 这里再加一道: 右 Alt / X2 正被按着就等, 不在人说话时重启
+Add-Type -Namespace K -Name S -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);'
+while (([K.S]::GetAsyncKeyState(0xA5) -band 0x8000) -or ([K.S]::GetAsyncKeyState(0x06) -band 0x8000)) { '等待右 Alt / 鼠标 X2 松开...'; Start-Sleep -Milliseconds 300 }
 Get-Process start_server, start_client -EA SilentlyContinue | Stop-Process -Force -Confirm:$false
 Start-Sleep 2
 # 只启动客户端: 它会隐藏拉起服务端 (core/client/server_launcher.py)

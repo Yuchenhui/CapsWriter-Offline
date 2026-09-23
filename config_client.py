@@ -76,7 +76,7 @@ class ClientConfig:
     auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
 
     # 日志配置
-    log_level = 'INFO'          # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+    log_level = 'DEBUG'         # 回滚排查用; 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
 
     mic_seg_duration = 60       # 麦克风听写时分段长度：60秒
     mic_seg_overlap = 4         # 麦克风听写时分段重叠：4秒

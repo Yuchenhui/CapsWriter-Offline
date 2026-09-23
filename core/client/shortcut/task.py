@@ -83,10 +83,14 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
 
         # 先把鼠标下的窗口切到前台, 结果就粘贴到那里 (替代 AHK 的 ~RAlt)
+        from core.client import key_trace
+        _t0, _a0 = time.perf_counter(), key_trace.ralt()
         try:
-            activate_window_under_cursor()
+            _path = activate_window_under_cursor()
         except Exception as e:
+            _path = f'error {e!r}'
             logger.debug(f"激活鼠标下窗口出错: {e}")
+        key_trace.push('step', f'切前台 {_path} {(time.perf_counter() - _t0) * 1000:.1f}ms RAlt {_a0}->{key_trace.ralt()}')
 
         # 记录开始时间
         self.recording_start_time = time.time()
@@ -122,7 +126,10 @@ class ShortcutTask:
         t = getattr(self, '_mute_timer', None)
         if t:
             t.cancel()
+        from core.client import key_trace
+        _t0 = time.perf_counter()
         speaker_mute.restore()   # 没被静音过时什么都不做
+        key_trace.push('step', f'恢复静音 {(time.perf_counter() - _t0) * 1000:.1f}ms RAlt {key_trace.ralt()}')
 
     def cancel(self) -> None:
         """取消录音任务（时间过短）"""
