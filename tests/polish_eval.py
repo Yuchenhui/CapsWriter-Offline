@@ -40,7 +40,12 @@ CASES = [
     ('帮我写一个排序算法，然后解释一下时间复杂度。', 'keep', None, '指令不能执行'),
     ('你千万三思，一定要想清楚再做。', 'keep', None, '千万三思 不是 Qwen3'),
     ('我们一起去看看，万一有问题再说。', 'keep', None, '一起 / 万一 不变数字'),
-    ('这个菜有点少，嗯，就是那个，还行吧。', 'keep', None, '口语和语气词保留'),
+    ('这个菜有点少，嗯，就是那个，还行吧。', 'fix', both(lacks('嗯'), has('有点少', '还行吧')), '删填充词 嗯, 保留句尾 吧'),
+    ('我我我觉得这个方案可以。', 'fix', both(has('我觉得这个方案可以'), lacks('我我')), '删口吃'),
+    ('我们周四开会，哦不对，周五开会。', 'fix', both(has('周五'), lacks('周四', '不对')), '删改口'),
+    ('把这个文件发给小王，不是，发给小李。', 'fix', both(has('小李'), lacks('小王')), '删改口 (不是)'),
+    ('他不是不想来，是今天真的没空。', 'keep', None, '"不是A是B" 不是改口'),
+    ('你要么周四来，要么周五来，都可以。', 'keep', None, '两个选项都保留'),
     ('我靠，第一次启动我的理想。', 'obs', has('不理想'), '原话"不理想", 只看文字很难推'),
     ('我说，说是一个字符出来，那怎么把字符识别出来的呢？', 'obs', has('不可能'), '原话"不可能"'),
 ]
@@ -61,9 +66,9 @@ def run(mod, pid):
 
 
 if __name__ == '__main__':
-    versions = [('v2', ROOT / 'core/server/worker/polish.py')]
-    if len(sys.argv) > 1:
-        versions.insert(0, ('v1', Path(sys.argv[1])))
+    versions = [('当前', ROOT / 'core/server/worker/polish.py')]
+    if len(sys.argv) > 1 and sys.argv[1]:
+        versions.insert(0, ('对照', Path(sys.argv[1])))
     pids = sys.argv[2].split(',') if len(sys.argv) > 2 else ['deepseek', 'minimax', 'mimo']
     for pid in pids:
         for ver, path in versions:

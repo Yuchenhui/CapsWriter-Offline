@@ -31,6 +31,16 @@ if TYPE_CHECKING:
 # 日志记录器
 
 
+def _window_desc() -> str:
+    """前台窗口 "进程名 | 标题" (标题截 80 字), 失败返回空串"""
+    try:
+        from core.tools.window_detector import get_active_window_info
+        w = get_active_window_info()
+        return f"{w.get('process_name', '')} | {(w.get('title') or '')[:80]}".strip(' |')
+    except Exception:
+        return ''
+
+
 class AudioRecorder:
     """
     音频录制器
@@ -108,6 +118,7 @@ class AudioRecorder:
                 
                 if task['type'] == 'begin':
                     self._start_time = task['time']
+                    self._window = _window_desc()   # 本地改: 此时鼠标下窗口已切到前台, 就是要粘贴的目标
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
@@ -156,6 +167,7 @@ class AudioRecorder:
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
                         polish=Config.polish,
+                        window=getattr(self, '_window', ''),
                         language=Config.language,
                     )
                     asyncio.create_task(self._send_message(message))
@@ -200,6 +212,7 @@ class AudioRecorder:
                             seg_overlap=Config.mic_seg_overlap,
                             context=load_terms() or Config.context,
                             polish=Config.polish,
+                            window=getattr(self, '_window', ''),
                             language=Config.language,
                         )
                         asyncio.create_task(self._send_message(message))
@@ -224,6 +237,7 @@ class AudioRecorder:
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
                         polish=Config.polish,
+                        window=getattr(self, '_window', ''),
                         language=Config.language,
                     )
                     asyncio.create_task(self._send_message(message))

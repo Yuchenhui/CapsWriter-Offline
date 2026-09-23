@@ -35,6 +35,7 @@ class AudioMessage:
     seg_overlap: float = 2.0
     context: str = ''
     language: str = 'auto'
+    window: str = ''             # 录音开始时的前台窗口 (进程名 + 标题), 只给二次整理当上下文
     polish: object = True        # 二次整理: 服务商 id ('' = 不整理); 旧版客户端传 True/False, 服务端用 polish_providers.resolve 兼容
 
     def to_json(self) -> str:
@@ -55,6 +56,7 @@ class AudioMessage:
             context=data.get('context', ''),
             language=data.get('language', 'auto'),
             polish=data.get('polish', True),
+            window=data.get('window', ''),
         )
 
 
