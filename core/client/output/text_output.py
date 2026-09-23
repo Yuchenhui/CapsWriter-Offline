@@ -113,7 +113,8 @@ class TextOutput:
         except Exception:
             temp = None
         try:
-            seq = set_clipboard_text(text)
+            # 恢复剪贴板时识别文字只是过客, 不进 Win+V 历史; 不恢复时它就是剪贴板内容, 正常进历史
+            seq = set_clipboard_text(text, exclude_history=Config.restore_clip)
         except Exception as e:
             logger.warning(f'直写剪贴板失败, 退回 pyclip: {e}')
             pyclip.copy(text)
