@@ -232,7 +232,11 @@ class _TraySystem:
         if more_options:
             for opt in more_options:
                 opt_name, opt_func = opt[0], opt[1]
-                if len(opt) > 2:   # 第三项 = 勾选状态函数, 做成可勾选的开关项
+                if len(opt) > 2 and opt_func == 'submenu':   # 本地改: 动态子菜单, 每次重建菜单时重新取列表
+                    def _gen(fn=opt[2]):
+                        return (item(t, a, checked=lambda _i, c=c: c(), radio=True) for t, a, c in fn())
+                    menu_items.append(item(opt_name, pystray.Menu(_gen)))
+                elif len(opt) > 2:   # 第三项 = 勾选状态函数, 做成可勾选的开关项
                     checked = opt[2]
                     menu_items.append(item(opt_name, opt_func, checked=lambda _item, f=checked: f()))
                 else:
@@ -401,3 +405,13 @@ if __name__ == "__main__":
     print("程序运行中... 你可以双击托盘图标隐藏我。")
     while True:
         time.sleep(1)
+
+
+def refresh_menu() -> None:
+    """本地改: 让托盘重建菜单 (pystray 在 Windows 上只在启动/点菜单项后重建, 设备插拔后要主动刷新)"""
+    t = _tray_instance
+    if t is not None:
+        try:
+            t.icon.update_menu()
+        except Exception as e:
+            logger.debug(f'刷新托盘菜单失败: {e}')

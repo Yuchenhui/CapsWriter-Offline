@@ -119,6 +119,10 @@ class TextOutput:
             pyclip.copy(text)
             seq = clipboard_seq()
         
+        # 本地改: 记录粘贴目标的焦点元素, 攒数据定"没有输入位置"的判定规则 (暂不改行为)
+        from core.tools.focus_probe import probe
+        logger.info(f"粘贴目标焦点: {probe()}")
+
         # 粘贴结果（使用 pynput 模拟 Ctrl+V）
         controller = pynput_keyboard.Controller()
         if platform.system() == 'Darwin':

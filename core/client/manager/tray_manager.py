@@ -44,6 +44,7 @@ class TrayManager:
                 ('🧹 清除记忆', self._clear_memory),
                 ('♻️ 重开音频', self._restart_audio),
                 ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
+                ('🎤 麦克风', 'submenu', self._mic_items),
             ] + [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
         )
         logger.info("托盘图标已启用")
@@ -67,6 +68,32 @@ class TrayManager:
         def checked():
             return server_launcher.current_model(self.app.base_dir) == model_type
         return (f'模型: {name}', action, checked)
+
+    def _mic_items(self):
+        """托盘「🎤 麦克风」子菜单: 可用录音设备, 打勾 = 当前 Windows 默认 (CapsWriter 跟随它)"""
+        from core.client.audio import mic_select
+        from core.client.audio.default_device_watch import default_capture_id
+        devs = mic_select.list_capture()   # 先调它: 内部会在托盘线程里 CoInitialize
+        cur = default_capture_id()
+        if not devs:
+            return [('（没有可用的录音设备）', lambda: None, lambda: False)]
+        return [(name + ('  [已静音]' if muted else ''), self._mic_action(dev_id, name), self._mic_checked(dev_id, cur))
+                for dev_id, name, muted in devs]
+
+    @staticmethod
+    def _mic_checked(dev_id, cur):
+        def checked():
+            return dev_id == cur
+        return checked
+
+    @staticmethod
+    def _mic_action(dev_id, name):
+        """零参数闭包 (pystray 按参数个数决定传不传 icon/item)"""
+        def action():
+            from core.client.audio import mic_select
+            if mic_select.set_default(dev_id):
+                logger.info(f'托盘选择麦克风: {name} (已设为 Windows 默认录音设备, 2 秒内生效)')
+        return action
 
     def _switch_model(self, model_type):
         """托盘切换识别模型: 改 config_server.py 并重启服务端, 约 5-15 秒后生效"""

@@ -70,9 +70,18 @@ def start(app) -> None:
     def watch():
         ctypes.windll.ole32.CoInitialize(None)
         last = default_capture_id()
+        from core.client.audio import mic_select
+        sig = None
         while not _stop.is_set():
             threading.Event().wait(_INTERVAL)
             cur = default_capture_id()
+            # 本地改: 插拔 / 静音 / 换默认 -> 托盘「🎤 麦克风」子菜单跟着变
+            new_sig = (cur, tuple(mic_select.list_capture()))
+            if new_sig != sig:
+                if sig is not None:
+                    from core.ui.tray import refresh_menu
+                    refresh_menu()
+                sig = new_sig
             if cur and last and cur != last and not app.state.recording and app.stream._running:   # 流已闲置释放时不用 reopen
                 logger.info('Windows 默认录音设备已变更, 重开音频流')
                 try:
