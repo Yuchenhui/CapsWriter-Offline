@@ -71,6 +71,7 @@ class ClientConfig:
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 
     enable_tray = True          # 客户端默认启用托盘图标功能
+    mute_speaker_while_recording = True  # 按住录音时音箱静音, 松开恢复原状态 (防止播放声被收进去)
     follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
     auto_start_server = True    # 客户端托管服务端: 只需启动客户端, 服务端隐藏运行, 退出时一并关闭
 

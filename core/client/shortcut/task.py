@@ -15,6 +15,9 @@ from . import logger
 from core.tools.my_status import Status
 from core.client.ui.recording_toast import RecordingToast
 from core.tools.window_focus import activate_window_under_cursor
+from core.client.audio import speaker_mute
+from config_client import ClientConfig as _Cfg
+import threading as _threading
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -102,6 +105,12 @@ class ShortcutTask:
         self._status.start()
         self._rec_toast.start()
 
+        # 音箱静音: 等过了短按阈值再静, 否则每次短按右 Alt 声音都会断一下
+        if getattr(_Cfg, 'mute_speaker_while_recording', False):
+            self._mute_timer = _threading.Timer(_Cfg.threshold, lambda: self.is_recording and speaker_mute.mute())
+            self._mute_timer.daemon = True
+            self._mute_timer.start()
+
         # 启动识别任务
         recorder = self._get_recorder()
         self.task = asyncio.run_coroutine_threadsafe(
@@ -109,11 +118,18 @@ class ShortcutTask:
             self.app.loop,
         )
 
+    def _unmute(self) -> None:
+        t = getattr(self, '_mute_timer', None)
+        if t:
+            t.cancel()
+        speaker_mute.restore()   # 没被静音过时什么都不做
+
     def cancel(self) -> None:
         """取消录音任务（时间过短）"""
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
 
         self.is_recording = False
+        self._unmute()
         self.state.stop_recording()
         self._status.stop()
         self._rec_toast.stop()
@@ -126,6 +142,7 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
 
         self.is_recording = False
+        self._unmute()
         duration = self.state.stop_recording()
         self._status.stop()
         # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭

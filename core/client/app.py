@@ -101,6 +101,10 @@ class CapsWriterClient:
         # 4. 关闭 WebSocket 连接
         self.ws.close_sync()
 
+        # 4.4 录音中途退出时把音箱静音恢复
+        from core.client.audio import speaker_mute
+        speaker_mute.restore()
+
         # 4.5 关闭托管的服务端 (只关自己拉起的)
         from core.client import server_launcher
         server_launcher.stop()

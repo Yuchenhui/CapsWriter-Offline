@@ -376,9 +376,8 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
         if _tray_instance is not None:
             return  # 已启动
 
-        if not _get_console_hwnd():
-            return  # 没有控制台窗口
-
+        # 本地改: 原来没控制台窗口就不建托盘 —— conhost --headless 无窗口启动时托盘会凭空消失.
+        # 托盘本身不依赖控制台; 没窗口时「显示/隐藏」和最小化监控本就是空操作 (hwnd 为空直接 return)
         _tray_instance = _TraySystem(name, icon_path, more_options)
         _tray_instance.start()
 
