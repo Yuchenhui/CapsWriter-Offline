@@ -106,7 +106,10 @@ def polish(text: str, choice=True) -> str:
     dt = time.time() - t0
     if not out or change > Config.polish_max_change:
         logger.debug(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
+        logger.info(f'二次整理 [{pid}] {dt:.2f}s, 改动 {change:.0%} 超限, 用原文')
         return text
+    # INFO 级每句一行: 能从日志确认用的是哪家、多快、改没改 (改了什么在 DEBUG 行, 避免全文进 INFO 日志)
+    logger.info(f'二次整理 [{pid}] {dt:.2f}s, ' + (f'改动 {change:.0%}' if out != text else '无改动'))
     if out != text:
         logger.debug(f'二次整理 [{pid}] ({change:.0%}, {dt:.2f}s): {text} --> {out}')
     return out
