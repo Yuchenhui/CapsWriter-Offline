@@ -4,4 +4,4 @@
 Set sh = CreateObject("WScript.Shell")
 dir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = dir
-sh.Run "conhost.exe --headless """ & dir & "\start_client.exe""", 0, False
+sh.Run sh.ExpandEnvironmentStrings("%WINDIR%") & "\System32\conhost.exe --headless """ & dir & "\start_client.exe""", 0, False

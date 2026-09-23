@@ -105,14 +105,19 @@ class TextOutput:
         """
         logger.debug(f"使用粘贴方式输出文本，长度: {len(text)}")
         
-        # 保存剪贴板
+        # 本地改 (审计 F10): 只在原内容是文本时才恢复 (图片/文件按文本读会读坏);
+        # 写入带"不进 Win+V 历史"标记; 恢复前核对序号, 期间别的程序写过就不恢复; 恢复延迟 0.1 -> 0.3s
+        from core.client.clipboard.clipboard import set_clipboard_text, clipboard_seq
         try:
             temp = pyclip.paste().decode('utf-8')
         except Exception:
-            temp = ''
-        
-        # 复制结果
-        pyclip.copy(text)
+            temp = None
+        try:
+            seq = set_clipboard_text(text)
+        except Exception as e:
+            logger.warning(f'直写剪贴板失败, 退回 pyclip: {e}')
+            pyclip.copy(text)
+            seq = clipboard_seq()
         
         # 粘贴结果（使用 pynput 模拟 Ctrl+V）
         controller = pynput_keyboard.Controller()
@@ -128,9 +133,15 @@ class TextOutput:
         logger.debug("已发送粘贴命令 (Ctrl+V)")
         
         # 还原剪贴板
-        if Config.restore_clip:
-            await asyncio.sleep(0.1)
-            pyclip.copy(temp)
+        if Config.restore_clip and temp is not None:
+            await asyncio.sleep(0.3)
+            if clipboard_seq() != seq:
+                logger.debug("剪贴板期间被别的程序改过, 不恢复")
+                return
+            try:
+                set_clipboard_text(temp)   # 原内容若来自密码管理器, 恢复时保持"不进历史"
+            except Exception:
+                pyclip.copy(temp)
             logger.debug("剪贴板已恢复")
     
     def _type_text(self, text: str) -> None:

@@ -24,6 +24,14 @@ from core.tools.terms import load_terms
 from . import logger
 
 _SSL_CTX = ssl.create_default_context()   # 建一次: 每次新建要加载证书库, 实测 11.8ms CPU
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):   # 本地改 L4: 不跟随重定向, 3xx 直接报错 -> 退回原文
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_SSL_CTX))
 _POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='polish')
 
 _SYSTEM = """你是语音识别（ASR）结果的校对器。输入是一句由语音自动转写的文字，错误来自"听错"，不是"写错"。
@@ -71,7 +79,7 @@ def _call_api(text: str) -> str:
     }
     req = urllib.request.Request(Config.polish_api_url, json.dumps(body).encode('utf-8'),
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=Config.polish_timeout, context=_SSL_CTX) as r:
+    with _OPENER.open(req, timeout=Config.polish_timeout) as r:
         return (json.load(r)['choices'][0]['message'].get('content') or '').strip()
 
 

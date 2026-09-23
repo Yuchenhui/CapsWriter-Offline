@@ -116,8 +116,9 @@ class AudioRecorder:
                         self._sumsq += float(np.sum(np.square(_d, dtype=np.float64)))
                         self._nsamp += int(_d.size)
                         self._peak = max(self._peak, float(np.max(np.abs(_d))))
-                    # 在阈值之前积攒音频数据
-                    if task['time'] - self._start_time < Config.threshold:
+                    # 在阈值之前积攒音频数据 (本地改 F6: 开了静音门限时多攒到 silence_gate_hold 秒, 松开时整句判断)
+                    _hold = Config.silence_gate_hold if getattr(Config, 'silence_rms_gate', 0) else 0
+                    if task['time'] - self._start_time < max(Config.threshold, _hold):
                         self._cache.append(task['data'])
                         continue
                     
@@ -164,6 +165,20 @@ class AudioRecorder:
                         _db = lambda v: 20 * np.log10(v) if v > 0 else -120.0
                         logger.info(f"本句音量: 平均 {_db((self._sumsq / self._nsamp) ** 0.5):.1f} dBFS, "
                                     f"峰值 {_db(self._peak):.1f} dBFS, 任务ID: {self.task_id}")
+                    # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
+                    # 实测 2026-09-23: 没说话时 Qwen3 会把术语表 (context) 念成一段"识别结果" (平均 -53.5 / -50.1 dBFS)
+                    _gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
+                    _rms = (self._sumsq / self._nsamp) ** 0.5 if self._nsamp else 0.0
+                    if _gate and _rms < _gate and self._duration == 0.0:
+                        logger.info(f"录音太安静 (平均 {20 * np.log10(max(_rms, 1e-6)):.1f} dBFS < 门限), 不送识别, 任务ID: {self.task_id}")
+                        console.print('    录音太安静, 未识别')
+                        self._cache.clear()
+                        if Config.save_audio and self._file_manager:
+                            self._file_manager.finish()
+                        from core.client.ui.recording_toast import close_active
+                        close_active()
+                        break
+
                     # 如果有缓存的数据未发送，先发送缓存
                     if self._cache:
                         data = np.concatenate(self._cache)

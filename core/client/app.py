@@ -84,6 +84,9 @@ class CapsWriterClient:
         """
         统一释放所有资源（清理顺序：硬件 -> 托盘 -> WebSocket -> State）
         """
+        if getattr(self, '_stopped', False):   # 本地改 F2: 托盘退出后 atexit 会再调一次
+            return
+        self._stopped = True
         logger.info("正在执行 CapsWriterClient 资源释放...")
 
         # 1. 停止核心运行组件
@@ -141,6 +144,12 @@ class CapsWriterClient:
             # 麦克风实时模式
             runner = MicRunner(self)
         
+        import atexit, threading, traceback
+        def _thread_hook(args):   # 本地改 F2: 守护线程崩溃写进日志, 无窗口运行时 stderr 看不见
+            logger.error('线程 %s 异常: %s', args.thread.name if args.thread else '?',
+                         ''.join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+        threading.excepthook = _thread_hook
+        atexit.register(self.stop)   # 本地改 F2: 非正常退出也关托管的服务端、恢复音箱静音
         try:
             self.loop.run_until_complete(runner.run())
         except RuntimeError:

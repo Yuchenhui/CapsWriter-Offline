@@ -33,6 +33,9 @@ class ClientConfig:
     ]
 
     threshold    = 0.3          # 快捷键触发阈值（秒）
+    silence_rms_gate = 0.0056   # 整句平均音量低于此值 (-45 dBFS) 视为没说话, 不送识别; 0 = 关.
+                                # 依据 2026-09-23 实测: 正常说话平均 -20 ~ -38.6 dBFS, 没说话误识别 -53.5 / -50.1 dBFS
+    silence_gate_hold = 10      # 门限开启时, 前 N 秒音频留在客户端等松开再判断 (更长的录音照常边录边发, 不做门限)
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
     restore_clip = True         # 模拟粘贴后是否恢复剪贴板
