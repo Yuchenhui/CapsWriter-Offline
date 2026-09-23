@@ -11,6 +11,7 @@ DMSL 错改成 Docker; MiniMax M2.x 思考关不掉 (3-9s); DeepSeek Flash 关�
 from __future__ import annotations
 
 import difflib
+import re
 import json
 import os
 import time
@@ -79,13 +80,17 @@ def polish(text: str) -> str:
     except Exception as e:
         logger.warning(f'二次整理失败, 用原文 ({time.time() - t0:.2f}s): {e}')
         return text
+    out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
+    if '\n' not in text and '\n' in out:                        # 原文单行, 输出多出换行 -> 贴进终端可能执行半条命令
+        logger.debug(f'二次整理放弃 (输出多出换行): {text} -X-> {out!r}')
+        return text
     # 比较前统一小写、去空白: "deep sick"->"DeepSeek" 这种大小写/空格差异不该算改动, 否则短句必被误拦
     norm = lambda x: ''.join(x.lower().split())
     change = 1 - difflib.SequenceMatcher(None, norm(text), norm(out)).ratio()
     dt = time.time() - t0
     if not out or change > Config.polish_max_change:
-        logger.info(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
+        logger.debug(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
         return text
     if out != text:
-        logger.info(f'二次整理 ({change:.0%}, {dt:.2f}s): {text} --> {out}')
+        logger.debug(f'二次整理 ({change:.0%}, {dt:.2f}s): {text} --> {out}')
     return out

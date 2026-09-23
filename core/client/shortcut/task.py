@@ -15,7 +15,7 @@ from . import logger
 from core.tools.my_status import Status
 from core.client.ui.recording_toast import RecordingToast
 from core.tools.window_focus import activate_window_under_cursor
-from core.client.audio import speaker_mute
+from core.client.audio import speaker_mute, idle_release
 from config_client import ClientConfig as _Cfg
 import threading as _threading
  
@@ -83,10 +83,9 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
 
         # 先把鼠标下的窗口切到前台, 结果就粘贴到那里 (替代 AHK 的 ~RAlt)
-        try:
-            activate_window_under_cursor()
-        except Exception as e:
-            logger.debug(f"激活鼠标下窗口出错: {e}")
+        _threading.Thread(target=self._activate_under_cursor, daemon=True).start()   # 不在键盘钩子线程里做 SetForegroundWindow/AttachThreadInput
+
+        idle_release.wake(self.app)   # 麦克风若已闲置释放, 后台重新打开
 
         # 记录开始时间
         self.recording_start_time = time.time()
@@ -107,7 +106,7 @@ class ShortcutTask:
 
         # 音箱静音: 等过了短按阈值再静, 否则每次短按右 Alt 声音都会断一下
         if getattr(_Cfg, 'mute_speaker_while_recording', False):
-            self._mute_timer = _threading.Timer(_Cfg.threshold, lambda: self.is_recording and speaker_mute.mute())
+            self._mute_timer = _threading.Timer(_Cfg.threshold, lambda: speaker_mute.mute(lambda: self.is_recording))
             self._mute_timer.daemon = True
             self._mute_timer.start()
 
@@ -118,11 +117,19 @@ class ShortcutTask:
             self.app.loop,
         )
 
+    @staticmethod
+    def _activate_under_cursor() -> None:
+        try:
+            activate_window_under_cursor()
+        except Exception as e:
+            logger.debug(f"激活鼠标下窗口出错: {e}")
+
     def _unmute(self) -> None:
         t = getattr(self, '_mute_timer', None)
         if t:
             t.cancel()
-        speaker_mute.restore()   # 没被静音过时什么都不做
+        # restore 里的 COM RPC 实测 2.4ms, 音频服务忙时可达数百 ms; 钩子回调里阻塞会被系统摘钩, 丢到线程做
+        _threading.Thread(target=speaker_mute.restore, daemon=True).start()   # 没被静音过时什么都不做
 
     def cancel(self) -> None:
         """取消录音任务（时间过短）"""
@@ -130,6 +137,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self._unmute()
+        idle_release.schedule(self.app)
         self.state.stop_recording()
         self._status.stop()
         self._rec_toast.stop()
@@ -143,6 +151,7 @@ class ShortcutTask:
 
         self.is_recording = False
         self._unmute()
+        idle_release.schedule(self.app)
         duration = self.state.stop_recording()
         self._status.stop()
         # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭

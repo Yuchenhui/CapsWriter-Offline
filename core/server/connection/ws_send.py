@@ -57,7 +57,7 @@ async def ws_send(app):
             logger.debug(f"发送识别结果，任务ID: {result.task_id}, 文本长度: {len(result.text)}")
 
             if result.type == 'mic':
-                logger.info(f"麦克风识别结果: {result.text}")
+                logger.debug(f"麦克风识别结果: {result.text}")
             elif result.type == 'file':
                 console.print(f'    转录进度：{result.duration:.2f}s', end='\r')
                 logger.debug(f"文件转录进度: {result.duration:.2f}s")

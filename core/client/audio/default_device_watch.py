@@ -13,6 +13,7 @@ from ctypes import wintypes
 logger = logging.getLogger(__name__)
 
 _INTERVAL = 2.0
+_stop = threading.Event()
 eCapture, eConsole = 1, 0
 CLSCTX_ALL = 0x17
 
@@ -69,10 +70,10 @@ def start(app) -> None:
     def watch():
         ctypes.windll.ole32.CoInitialize(None)
         last = default_capture_id()
-        while app.stream._running:
+        while not _stop.is_set():
             threading.Event().wait(_INTERVAL)
             cur = default_capture_id()
-            if cur and last and cur != last and not app.state.recording:
+            if cur and last and cur != last and not app.state.recording and app.stream._running:   # 流已闲置释放时不用 reopen
                 logger.info('Windows 默认录音设备已变更, 重开音频流')
                 try:
                     app.stream.reopen()
@@ -82,3 +83,7 @@ def start(app) -> None:
                 last = cur   # 录音中不切, 等录完下一轮再处理
 
     threading.Thread(target=watch, daemon=True, name='default-mic-watch').start()
+
+
+def stop() -> None:
+    _stop.set()

@@ -32,7 +32,7 @@ class TrayManager:
         icon_path = os.path.join(self.app.base_dir, 'assets', 'icon.ico')
         
         # 启用托盘
-        enable_min_to_tray(
+        ok = enable_min_to_tray(
             'CapsWriter Client',
             icon_path,
             exit_callback=self.app.stop,
@@ -46,7 +46,7 @@ class TrayManager:
                 ('🪄 二次整理', self._toggle_polish, lambda: Config.polish),
             ] + [self._model_item(mt, name) for mt, (name, _) in server_launcher.MODELS.items()]
         )
-        logger.info("托盘图标已启用")
+        logger.info("托盘图标已启用" if ok else "托盘图标未启用 (见上方原因)")
 
     def stop(self):
         """停止托盘图标"""

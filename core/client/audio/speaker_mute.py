@@ -57,10 +57,11 @@ def _set_mute(vol, on: bool):
     _vcall(vol, 14, ctypes.HRESULT, ctypes.c_int, ctypes.c_void_p)(vol, int(on), None)  # SetMute
 
 
-def mute() -> None:
+def mute(still_recording=lambda: True) -> None:
+    """still_recording 在锁内再判一次: 松键的 restore() 与延时静音的 Timer 用同一把锁, 避免 restore 先跑成空操作、随后才静音卡住"""
     global _saved
     with _lock:
-        if _saved is not None:
+        if _saved is not None or not still_recording():
             return
         _saved = _with_volume(lambda v: (_get_mute(v), _set_mute(v, True))[0])
 

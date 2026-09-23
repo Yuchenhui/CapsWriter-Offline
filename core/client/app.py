@@ -93,6 +93,8 @@ class CapsWriterClient:
 
         # 2. 托盘资源
         self.tray.stop()
+        from core.client.audio import default_device_watch
+        default_device_watch.stop()
 
         # 3. 关闭监控
         self.hotword.stop()
@@ -141,6 +143,8 @@ class CapsWriterClient:
             # 麦克风实时模式
             runner = MicRunner(self)
         
+        import atexit
+        atexit.register(self.stop)   # 本地改: 异常退出/被 kill 以外的任何退出都要关托管的服务端、恢复音箱静音
         try:
             self.loop.run_until_complete(runner.run())
         except RuntimeError:

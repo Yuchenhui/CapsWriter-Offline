@@ -6,6 +6,7 @@
 退出时只关自己拉起的那个服务端 (连同其识别子进程), 不碰外部手动启动的.
 """
 import logging
+import os
 import re
 import socket
 import subprocess
@@ -88,8 +89,10 @@ def switch_model(base_dir, model_type: str) -> bool:
         logger.warning(f'模型未安装, 不切换: {MODELS[model_type][1]}')
         return False
     cfg = base_dir / 'config_server.py'
-    cfg.write_text(_MODEL_RE.sub(lambda m: f"{m.group(1)}'{model_type}'", cfg.read_text(encoding='utf-8'), count=1),
+    tmp = cfg.with_suffix('.py.tmp')   # 先写临时文件再原子替换, 写到一半崩溃不会留下坏配置
+    tmp.write_text(_MODEL_RE.sub(lambda m: f"{m.group(1)}'{model_type}'", cfg.read_text(encoding='utf-8'), count=1),
                    encoding='utf-8')
+    os.replace(tmp, cfg)
     if _proc is not None and _proc.poll() is None:
         subprocess.run(['taskkill', '/PID', str(_proc.pid), '/T', '/F'],
                        capture_output=True, creationflags=CREATE_NO_WINDOW)
