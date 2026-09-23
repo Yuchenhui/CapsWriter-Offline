@@ -52,6 +52,9 @@ _SYSTEM = """<任务>
 5. 口吃和无意的重复（"我我我觉得" -> "我觉得"），说到一半放弃、紧接着重说的半截话。
 6. 明确的改口：删掉被否定的说法和改口词，只留最终说法（"周四开会，哦不对，周五" -> "周五开会"）。改口词（不对、不是、哦不、我是说、应该是）只在确实用来更正前文时才删；"不是 A，是 B" 这种表达本身的对比不算改口，保留。
 7. 句首和句中无意义的填充词（嗯、呃、额、那个那个）删掉；有语气作用的句尾词（吧、呢、啊、嘛）保留。
+8. 明确的列举：用户按顺序说"第一……第二……第三……"或"首先……然后/其次……最后……"时，整理成编号 1. 2. 3.，去掉"第一""首先"这类序号词本身。
+   按 <换行> 的要求排版：允许换行时每项一行；禁止换行时写在同一行，各项用分号隔开（如 "1. 写需求；2. 评审；3. 开发"）。
+   "第一次""第一名""首先要说明的是"这类不是在列举多项的，不编号。
 </要修的>
 
 <不许做的>
@@ -74,6 +77,11 @@ _SYSTEM = """<任务>
 输出：我觉得把这个文件发给小李吧
 输入：我不是说这个方案不好，是说它太贵了
 输出：我不是说这个方案不好，是说它太贵了
+输入（允许换行）：上线前要做三件事，第一备份数据库，第二停掉定时任务，第三通知客服
+输出：上线前要做三件事：
+1. 备份数据库
+2. 停掉定时任务
+3. 通知客服
 </示例>
 
 <词表>
@@ -83,6 +91,16 @@ _SYSTEM = """<任务>
 <输出要求>
 只输出校对后的文字，不要解释、标签、引号或 "输出：" 前缀。
 </输出要求>"""
+
+
+_TERMINALS = ('windowsterminal.exe', 'cmd.exe', 'powershell.exe', 'pwsh.exe', 'conhost.exe', 'wezterm-gui.exe',
+              'alacritty.exe', 'mintty.exe', 'code.exe', 'cursor.exe', 'windsurf.exe')
+
+
+def multiline_ok(window: str) -> bool:
+    """终端 (及内嵌终端的编辑器) 里粘贴换行会逐行执行命令 -> 禁止换行; 窗口未知也按禁止处理"""
+    proc = (window or '').split('|')[0].strip().lower()
+    return bool(proc) and proc not in _TERMINALS
 
 
 def _pinyin(text: str) -> str:
@@ -95,6 +113,9 @@ def _pinyin(text: str) -> str:
 
 
 _CN_NUM = set('零〇一二两三四五六七八九十百千万亿点幺半')
+_PUNCT = re.compile(r'[\s，,。.；;：:、！!？?“”"\'（）()]')
+_ENUM_CUE = re.compile(r'(第[一二三四五六七八九十]+|首先|其次|然后|再次|最后)')
+_ENUM_NUM = re.compile(r'\d{1,2}\.?')
 _NUM_OUT = re.compile(r'[0-9.:%/+\-,]+')
 _TERM_OUT = re.compile(r'[a-z0-9.+#\-]+')
 
@@ -139,6 +160,11 @@ def _change_ratio(text: str, out: str, terms: str) -> tuple:
         old, new = a[i1:i2], b[j1:j2]
         if new and _NUM_OUT.fullmatch(new) and all(c in _CN_NUM or c.isdigit() or c == '.' for c in old):
             continue
+        o2, n2 = _PUNCT.sub('', old), _PUNCT.sub('', new)
+        if not o2 and not n2:                                   # 只改标点
+            continue
+        if _ENUM_CUE.fullmatch(o2) and _ENUM_NUM.fullmatch(n2):  # 列举: "第一" / "首先" -> "1."
+            continue
         if new and _TERM_OUT.fullmatch(new) and new in blob and len(old) <= 3 * len(new) + 4:
             continue
         if not new:   # 纯删除: 口吃 / 改口 / 填充词, 单独计
@@ -156,7 +182,8 @@ def _call_api(text: str, pid: str, window: str = '') -> str:
         'messages': [
             {'role': 'system', 'content': _SYSTEM.format(terms=load_terms() or getattr(Config, 'polish_terms', '') or '无')},
             {'role': 'user', 'content': f'<识别结果>{text}</识别结果>\n<拼音>{_pinyin(text)}</拼音>'
-                                        + (f'\n<当前窗口>{window}</当前窗口>' if window else '')},
+                                        + (f'\n<当前窗口>{window}</当前窗口>' if window else '')
+                                        + ('\n<换行>允许</换行>' if multiline_ok(window) else '\n<换行>禁止：列举写在同一行</换行>')},
         ],
         'max_tokens': len(text) * 2 + 64,
         'temperature': 0,
@@ -183,7 +210,7 @@ def polish(text: str, choice=True, window: str = '') -> str:
         logger.warning(f'二次整理 [{pid}] 失败, 用原文 ({time.time() - t0:.2f}s): {e}')
         return text
     out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
-    if '\n' not in text and '\n' in out:                        # 原文单行, 输出多出换行 -> 贴进终端可能执行半条命令
+    if '\n' not in text and '\n' in out and not multiline_ok(window):   # 终端里多出换行 -> 贴进去可能逐行执行命令
         logger.debug(f'二次整理放弃 (输出多出换行): {text} -X-> {out!r}')
         return text
     # 比较前统一小写、去空白: "deep sick"->"DeepSeek" 这种大小写/空格差异不该算改动, 否则短句必被误拦

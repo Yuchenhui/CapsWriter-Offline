@@ -46,6 +46,10 @@ CASES = [
     ('把这个文件发给小王，不是，发给小李。', 'fix', both(has('小李'), lacks('小王')), '删改口 (不是)'),
     ('他不是不想来，是今天真的没空。', 'keep', None, '"不是A是B" 不是改口'),
     ('你要么周四来，要么周五来，都可以。', 'keep', None, '两个选项都保留'),
+    ('我说一下安排，第一先写需求文档，第二评审一下，第三开始开发。', 'fix', both(has('1.', '2.', '3.', '\n'), lacks('第一')), '列举 -> 分行编号', 'chrome.exe | 飞书'),
+    ('我说一下安排，第一先写需求文档，第二评审一下，第三开始开发。', 'fix', both(has('1.', '2.', '3.'), lacks('\n')), '终端里列举 -> 同一行编号', 'WindowsTerminal.exe | pwsh'),
+    ('第一次来北京的时候，我特别兴奋。', 'keep', None, '第一次 不是列举', 'chrome.exe | 飞书'),
+    ('这份报告我已经报道过了，抱到会议室给大家看看。', 'keep', None, '报道/抱到 正确时不动'),
     ('我靠，第一次启动我的理想。', 'obs', has('不理想'), '原话"不理想", 只看文字很难推'),
     ('我说，说是一个字符出来，那怎么把字符识别出来的呢？', 'obs', has('不可能'), '原话"不可能"'),
 ]
@@ -54,9 +58,9 @@ CASES = [
 def run(mod, pid):
     ok = bad = 0
     ts, rows = [], []
-    for text, kind, check, note in CASES:
+    for text, kind, check, note, *win in CASES:
         t0 = time.time()
-        out = mod.polish(text, pid)
+        out = mod.polish(text, pid, win[0]) if win else mod.polish(text, pid)
         ts.append(time.time() - t0)
         good = (out == text) if kind == 'keep' else check(out)
         if kind != 'obs':
