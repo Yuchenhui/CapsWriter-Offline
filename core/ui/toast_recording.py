@@ -20,6 +20,7 @@ close_toast 时销毁。
 from __future__ import annotations
 
 import math
+import time
 import random
 import tkinter as tk
 from core.ui.layered_renderer import LayeredRenderer
@@ -131,7 +132,8 @@ _WAVE_FLOW = 0.006         # 色带每帧流动量 (~25fps 下约 7 秒转一圈
 _DOT_MIN = 2.5            # 转写中: 暗点直径 (像素)
 _DOT_MAX = 6.0            # 转写中: 光点处直径
 _DOT_DIM = '#4a5163'      # 转写中: 暗点颜色
-_DOT_SPEED = 0.9          # 光点移动速度 (点/帧, ~25fps 下约 0.8 秒扫一遍; 2026-09-24 用户嫌慢, 0.45 -> 0.9)
+_DOT_SWEEP_S = 0.37       # 光点扫一遍的秒数 (按实际时间算, 与帧率无关. 2026-09-24 用户要"唰唰"的: 原约 1.6s)
+_PROC_FRAME_MS = 15       # 转写中帧间隔: 对齐 Windows 15.6ms 计时刻度约 64fps (设 20 会被凑成 31ms); 此状态通常只持续 1 秒左右
 _DOT_TAIL = 2.2           # 光点光晕宽度 (点数, 越大拖尾越长)
 
 # 真实电平驱动（拿不到实时电平时回退到合成动画）
@@ -325,6 +327,7 @@ class ToastWindowRecording:
             self._applied_mode = self._mode
             self._text = _PROC_LABEL
             self._proc_frames = 0
+            self._proc_t0 = time.perf_counter()
             # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
             if self._ulw is None:
                 self.canvas.delete('all')
@@ -355,7 +358,7 @@ class ToastWindowRecording:
             # 被扫到的圆点变大、变亮、带流动色, 其余是暗小点 —— 与聆听态的跳动竖条一眼可分
             step = _WAVE_W / _BAR_COUNT
             span = _BAR_COUNT + 2 * _DOT_TAIL                      # 光点从左侧外进、右侧外出
-            head = (self._proc_frames * _DOT_SPEED) % span - _DOT_TAIL
+            head = ((time.perf_counter() - self._proc_t0) / _DOT_SWEEP_S * span) % span - _DOT_TAIL
             for i in range(_BAR_COUNT):
                 k = math.exp(-((i - head) / _DOT_TAIL) ** 2)       # 离光点越近越接近 1
                 d = _DOT_MIN + (_DOT_MAX - _DOT_MIN) * k            # 圆点直径
@@ -408,7 +411,7 @@ class ToastWindowRecording:
             for x1, y1, x2, y2, w, c in prims:
                 self.canvas.create_line(x1, y1, x2, y2, width=w, fill=c, capstyle=tk.ROUND, tags='dyn')
 
-        self._after_id = self.window.after(_FRAME_MS, self._tick)
+        self._after_id = self.window.after(_PROC_FRAME_MS if processing else _FRAME_MS, self._tick)
 
     # -- 工具 --------------------------------------------------------------
     def _palette_at(self, u: float) -> str:
