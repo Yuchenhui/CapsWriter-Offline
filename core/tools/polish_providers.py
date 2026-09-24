@@ -34,6 +34,9 @@ PROVIDERS = {
 # 真要加回, 配置是: url https://api.groq.com/openai/v1/chat/completions, model openai/gpt-oss-120b, key_env GROQ_API_KEY,
 # body {'thinking': None, 'max_tokens': None, 'reasoning_effort': 'low', 'include_reasoning': False}
 # (推理模型关不掉思考只能 low; 思考 token 计入上限; 不认 thinking 字段). 服务商字段 body 覆盖请求参数, None = 删掉.
+# 同日试过本机 Ollama (WSL 容器, RTX 4060), 不收录: qwen3.5:4b 热 0.65s 但评测 16/26 (DeepSeek 26/26), 冷加载 7.7s 超时限,
+# 与识别模型抢 8GB 显存; lfm2.5:8b 关不掉思考 (每次 2376 token, 15s). 配置: url http://localhost:11434/v1/chat/completions,
+# body {'thinking': None, 'reasoning_effort': 'none'}, key 随便填.
 DEFAULT = 'deepseek'
 
 
