@@ -8,10 +8,24 @@ Tk 画布没有抗锯齿, 抠图色透明只能整像素透/不透, 整窗 alpha
 import ctypes
 from ctypes import wintypes
 
-GLASS_TOP = (44, 50, 64, 235)      # 玻璃底顶部颜色 (RGBA), 自上而下渐变 (本地改 2026-09-24: alpha 200 -> 235, 深色背景上太透不明显)
-GLASS_BOTTOM = (20, 24, 32, 225)   # 玻璃底底部颜色 (alpha 越小越透; 176 -> 225)
-GLASS_RIM = (255, 255, 255, 80)    # 外沿细亮边 (46 -> 80, 深色背景上勾出轮廓)
-SHADOW = (0, 0, 0, 120)            # 投影颜色
+# 本地改 2026-09-24: 按 Windows 应用主题 (AppsUseLightTheme) 取配色, 每个胶囊创建时读一次, 切主题下一句即生效.
+# top/bottom = 玻璃底自上而下渐变 (RGBA, alpha 越小越透); rim = 外沿细边; shadow = 投影; dot = 转写中暗点
+THEMES = {
+    'dark':  dict(top=(62, 69, 86, 225), bottom=(38, 43, 56, 215), rim=(255, 255, 255, 70), shadow=(0, 0, 0, 110), dot='#5c6478'),
+    'light': dict(top=(250, 251, 253, 235), bottom=(229, 233, 240, 225), rim=(0, 0, 0, 38), shadow=(0, 0, 0, 55), dot='#b3bbca'),
+}
+
+
+def theme() -> dict:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') as k:
+            light = winreg.QueryValueEx(k, 'AppsUseLightTheme')[0] == 1
+    except OSError:
+        light = False
+    return THEMES['light' if light else 'dark']
+
+
 SHADOW_BLUR = 7                    # 投影模糊半径 (像素)
 SHADOW_DY = 3                      # 投影下移 (像素)
 
@@ -106,9 +120,10 @@ class LayeredRenderer:
         x1, y1 = M * SS, M * SS
         x2, y2 = (M + self.pw) * SS - 1, (M + self.ph) * SS - 1
         rad = self.ph * SS // 2
+        pal = theme()
 
         shadow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(shadow).rounded_rectangle((x1, y1 + SHADOW_DY * SS, x2, y2 + SHADOW_DY * SS), rad, fill=SHADOW)
+        ImageDraw.Draw(shadow).rounded_rectangle((x1, y1 + SHADOW_DY * SS, x2, y2 + SHADOW_DY * SS), rad, fill=pal['shadow'])
         img = shadow.filter(ImageFilter.GaussianBlur(SHADOW_BLUR * SS))
 
         # 渐变玻璃底: 1 像素宽的竖向渐变拉伸, 再用胶囊形状做蒙版
@@ -116,7 +131,7 @@ class LayeredRenderer:
         grad = Image.new('RGBA', (1, n + 1))
         for j in range(n + 1):
             t = j / max(n, 1)
-            grad.putpixel((0, j), tuple(round(a + (b - a) * t) for a, b in zip(GLASS_TOP, GLASS_BOTTOM)))
+            grad.putpixel((0, j), tuple(round(a + (b - a) * t) for a, b in zip(pal['top'], pal['bottom'])))
         glass = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         glass.paste(grad.resize((x2 - x1 + 1, n + 1)), (x1, y1))
         mask = Image.new('L', (W, H), 0)
@@ -125,7 +140,7 @@ class LayeredRenderer:
         img = Image.alpha_composite(img, glass)
 
         d = ImageDraw.Draw(img)
-        d.rounded_rectangle((x1, y1, x2, y2), rad, outline=GLASS_RIM, width=SS)
+        d.rounded_rectangle((x1, y1, x2, y2), rad, outline=pal['rim'], width=SS)
         return img
 
     @staticmethod

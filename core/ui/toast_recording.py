@@ -131,8 +131,7 @@ _WAVE_SPAN = 0.6           # 一排声条覆盖色带的比例 (越小相邻声�
 _WAVE_FLOW = 0.006         # 色带每帧流动量 (~25fps 下约 7 秒转一圈)
 _DOT_MIN = 2.5            # 转写中: 暗点直径 (像素)
 _DOT_MAX = 6.0            # 转写中: 光点处直径
-_DOT_DIM = '#4a5163'      # 转写中: 暗点颜色
-_DOT_SWEEP_S = 0.37       # 光点扫一遍的秒数 (按实际时间算, 与帧率无关. 2026-09-24 用户要"唰唰"的: 原约 1.6s)
+_DOT_SWEEP_S = 0.6        # 光点扫一遍的秒数 (按实际时间算, 与帧率无关; 缓入缓出. 2026-09-24: 原 1.6s 嫌慢, 0.37s 嫌太快不优雅)
 _PROC_FRAME_MS = 15       # 转写中帧间隔: 对齐 Windows 15.6ms 计时刻度约 64fps (设 20 会被凑成 31ms); 此状态通常只持续 1 秒左右
 _DOT_TAIL = 2.2           # 光点光晕宽度 (点数, 越大拖尾越长)
 
@@ -207,6 +206,8 @@ class ToastWindowRecording:
         self._applied_mode = 'listening'
         self._proc_frames = 0                 # 处理态帧计数（仅驱动扫光动画）
         self._proc_timeout_ms = _PROC_TIMEOUT_MS
+        from core.ui.layered_renderer import theme
+        self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
         self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
 
         self.window = tk.Toplevel(parent_root)
@@ -358,13 +359,14 @@ class ToastWindowRecording:
             # 被扫到的圆点变大、变亮、带流动色, 其余是暗小点 —— 与聆听态的跳动竖条一眼可分
             step = _WAVE_W / _BAR_COUNT
             span = _BAR_COUNT + 2 * _DOT_TAIL                      # 光点从左侧外进、右侧外出
-            head = ((time.perf_counter() - self._proc_t0) / _DOT_SWEEP_S * span) % span - _DOT_TAIL
+            u = ((time.perf_counter() - self._proc_t0) / _DOT_SWEEP_S) % 1.0
+            head = u * u * (3 - 2 * u) * span - _DOT_TAIL           # smoothstep: 起步收尾慢, 中间快
             for i in range(_BAR_COUNT):
                 k = math.exp(-((i - head) / _DOT_TAIL) ** 2)       # 离光点越近越接近 1
                 d = _DOT_MIN + (_DOT_MAX - _DOT_MIN) * k            # 圆点直径
                 lit = self._palette_at(i / (_BAR_COUNT - 1) * _WAVE_SPAN - self._frame * _WAVE_FLOW * 2)
                 x = self._wave_x0 + (i + 0.5) * step
-                prims.append((x, self._mid_y, x, self._mid_y, d, self._lerp(_DOT_DIM, lit, k)))
+                prims.append((x, self._mid_y, x, self._mid_y, d, self._lerp(self._dot_dim, lit, k)))
         else:
             p = self._phase0 + self._frame * _WAVE_SPEED
             # 整体响度：优先真实麦克风电平（平滑：起快落慢），
@@ -389,7 +391,7 @@ class ToastWindowRecording:
                 d = _DOT_MIN + (_DOT_MAX - _DOT_MIN) * 0.35 * k
                 for i in range(_BAR_COUNT):
                     x = self._wave_x0 + (i + 0.5) * step
-                    prims.append((x, self._mid_y, x, self._mid_y, d, _DOT_DIM))
+                    prims.append((x, self._mid_y, x, self._mid_y, d, self._dot_dim))
                 speech = None
             step = _WAVE_W / _BAR_COUNT
             for i in range(_BAR_COUNT if speech is not None else 0):
