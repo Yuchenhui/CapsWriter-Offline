@@ -16,7 +16,7 @@ class ServerConfig:
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
     model_type = 'qwen_asr'  # 托盘「模型」可切换; sensevoice 更快更省显存, qwen_asr 更准
 
-    format_num = False      # 关: 规则转换分不清语境 ("二次整理"->"2次整理", "千万三"->"10003000")
+    format_num = True       # 开: 数字默认阿拉伯数字. 排除见 chinese_itn/resources/idioms.json (两个/二次...), Qwen 型号与 IP 见 formatter/text_formatter.py
     format_spell = True     # 输出时是否调整中英之间的空格
 
     # 二次整理: 在线 LLM 只修听错的术语/同音字/标点 (core/server/worker/polish.py); 客户端托盘可随时开关

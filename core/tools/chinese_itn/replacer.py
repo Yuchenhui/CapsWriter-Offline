@@ -246,7 +246,7 @@ def replace(match):
     original = match.group(2)
 
     if idioms and any(
-        string.find(idiom) in range(l_pos, r_pos) and len(original) <= len(idiom)
+        string.find(idiom, l_pos) in range(l_pos, r_pos) and len(original) <= len(idiom)  # 本地改: 从 l_pos 找, 原来只认句中第一次出现
         for idiom in idioms
     ):
         final = original
