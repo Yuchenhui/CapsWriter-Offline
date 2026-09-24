@@ -38,9 +38,8 @@ class TrayManager:
             exit_callback=self.app.stop,
             more_options=[
                 # 本地改 (2026-09-23 精简): 去掉 日记 (录音已关) / 上下文 (由 terms.txt 取代) / 清除记忆 (LLM 已关) /
-                # 重开音频 (流失效自动重开 + 麦克风菜单 + 重启 已覆盖); 模型、词库改二级菜单
-                ('复制结果', self._copy_last_result),
-                ('剪贴板 → 术语表', self._add_term_from_clipboard),
+                # 重开音频 (流失效自动重开 + 麦克风菜单 + 重启 已覆盖); 模型、词库改二级菜单.
+                # 2026-09-24 再删 复制结果 / 剪贴板 → 术语表 (用户从没用过; 识别结果本就留在剪贴板和 Win+V 历史里)
                 ('二次整理', 'submenu', self._polish_items),
                 ('麦克风', 'submenu', self._mic_items),
                 ('麦克风校准…', self._start_calibration),
@@ -189,69 +188,12 @@ class TrayManager:
             logger.info(f"二次整理: {pid or '关'}")
         return action
 
-    def _copy_last_result(self):
-        """复制最后一次识别结果到剪贴板回调"""
-        text = self.state.last_output_text
-        if text:
-            from ..llm.llm_clipboard import copy_to_clipboard
-            copy_to_clipboard(text)
-
     def _start_calibration(self):
         """读几句校准文本, 自动设当前麦克风的增益 (core/client/calibration.py)"""
         from core.client import calibration
         calibration.start(self.app)
 
-    def _add_term_from_clipboard(self):
-        """把剪贴板里的词加进 terms.txt (识别时作上下文 + 二次整理词表, 保存即生效). 用法: 选中正确的词 Ctrl+C, 点这里"""
-        from ..ui import toast
-        word = add_term(os.path.join(self.app.base_dir, 'terms.txt'), _read_clipboard())
-        if word is None:
-            toast('剪贴板里要是一个词 (一行, 40 字以内): 先选中正确的写法按 Ctrl+C', duration=3500)
-        elif word.startswith('已有:'):
-            toast(f'术语表里{word}', duration=2500, bg='#075077')
-        elif word.startswith('失败:'):
-            toast(f'写术语表{word}', duration=3500)
-        else:
-            logger.info(f'术语表新增: {word}')
-            toast(f'已加入术语表: {word}', duration=2500, bg='#1B7F3B')
-
     def _request_exit(self, icon=None, item=None):
         """托盘图标引用的退出回调"""
         logger.info("托盘退出: 用户点击退出菜单，准备清理资源并退出")
         self.app.stop()
-
-
-def _read_clipboard() -> str:
-    try:
-        import pyclip
-        return pyclip.paste().decode('utf-8', errors='replace')
-    except Exception as e:
-        logger.warning(f'读剪贴板失败: {e}')
-        return ''
-
-
-def add_term(path: str, raw: str):
-    """把一个词追加到术语表. 返回: 词 = 已加; '已有: 词'; '失败: 原因'; None = 不像一个词 (空 / 多行 / 超 40 字)"""
-    word = (raw or '').strip()
-    if not word or '\n' in word or '\r' in word or len(word) > 40:
-        return None
-    try:
-        lines = open(path, encoding='utf-8').read().splitlines() if os.path.exists(path) else []
-        if word in (l.strip() for l in lines):
-            return f'已有: {word}'
-        with open(path, 'a', encoding='utf-8') as f:
-            f.write(('\n' if lines and not open(path, encoding='utf-8').read().endswith('\n') else '') + word + '\n')
-    except OSError as e:
-        return f'失败: {e}'
-    return word
-
-
-if __name__ == '__main__':   # 自检: 临时文件上跑 add_term
-    import tempfile
-    d = tempfile.mkdtemp(); f = os.path.join(d, 'terms.txt')
-    open(f, 'w', encoding='utf-8').write('WSL\nDebian')          # 末尾无换行
-    assert add_term(f, '  VoiceInk ') == 'VoiceInk'
-    assert add_term(f, 'VoiceInk') == '已有: VoiceInk'
-    assert add_term(f, 'a\nb') is None and add_term(f, '') is None and add_term(f, 'x' * 41) is None
-    assert open(f, encoding='utf-8').read() == 'WSL\nDebian\nVoiceInk\n', repr(open(f, encoding='utf-8').read())
-    print('add_term selftest ok')
