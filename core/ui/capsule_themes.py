@@ -138,7 +138,7 @@ class Obsidian:
     BARS_W = BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP                  # 105
     W_PROC = 38 + BARS_W + 20                                       # 设计为 14+16+10=40, 与录音态声条起点对齐改 38
     BG, FG, RED, GREEN = '#0a0a0c', '#f4f4f5', '#ff5a4e', '#34c759'
-    SHADOW = dict(dy=12, blur=16, alpha=0.5)                        # CSS: 0 12px 32px rgba(0,0,0,.5)
+    SHADOW = dict(dy=12, blur=16, alpha=0.35)                       # CSS: 0 12px 32px rgba(0,0,0,.5); 本地改 .5 -> .35 (用户: 边框/阴影太明显)
     # 各声条的基准高度 / 伸缩周期 / 相位 (取自预览页 height / animation-duration / delay; 每根 scaleY 0.22<->1)
     _BASE = (8, 11, 14, 13, 16, 20, 19, 22, 25, 22, 22, 18, 18, 17, 13, 13, 13, 9)
     _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 3
@@ -156,8 +156,8 @@ class Obsidian:
 
     def shell(self, pen: Pen, x0, y0, w):
         h = self.H
-        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=(255, 255, 255, 23), width=1)
-        inset_top(pen, x0 + 1, y0 + 1, w - 2, h - 2, 0.06)      # 边框内侧的顶部内高光
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=(255, 255, 255, 13), width=1)   # 描边 白 9% -> 5% (用户: 太明显)
+        inset_top(pen, x0 + 1, y0 + 1, w - 2, h - 2, 0.04)      # 边框内侧的顶部内高光 6% -> 4%
 
     def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
         cy = y0 + self.H / 2
