@@ -128,6 +128,21 @@ class LayeredRenderer:
         d.rounded_rectangle((x1, y1, x2, y2), rad, outline=GLASS_RIM, width=SS)
         return img
 
+    @staticmethod
+    def _mix(c, to, t):
+        """'#rrggbb' 向 to (RGB 元组) 混合 t (0~1)"""
+        rgb = (int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16))
+        return tuple(round(a + (b - a) * t) for a, b in zip(rgb, to))
+
+    def _cylinder(self, d, cx, top, bottom, r, c):
+        """圆柱感: 压暗的外圈 -> 原色主体 (略偏左) -> 左侧窄高光, 光从左上来. 圆点 (top == bottom) 即成小球"""
+        for dx, k, col in ((0.0, 1.0, self._mix(c, (0, 0, 0), 0.35)),
+                           (-0.12, 0.72, self._mix(c, (0, 0, 0), 0.0)),
+                           (-0.30, 0.30, self._mix(c, (255, 255, 255), 0.55))):
+            rr = r * k
+            x = cx + dx * r * 2
+            d.rounded_rectangle((x - rr, top - rr, x + rr, bottom + rr), radius=rr, fill=col)
+
     def render(self, prims, alpha):
         """画一帧. prims = [(x1, y1, x2, y2, 线宽, '#rrggbb')] 胶囊局部坐标的圆头线段; alpha = 整窗淡入 0~1"""
         SS, M = self.SS, self.M
@@ -137,6 +152,9 @@ class LayeredRenderer:
             p1 = ((x1 + M) * SS, (y1 + M) * SS)
             p2 = ((x2 + M) * SS, (y2 + M) * SS)
             r = w * SS / 2
+            if x1 == x2:   # 本地改 2026-09-24: 竖条/圆点画成对称圆角矩形 + 圆柱明暗 (原 直线+两端补圆, 偶数线宽时线身偏半像素, 一侧像缺口)
+                self._cylinder(d, p1[0], min(p1[1], p2[1]), max(p1[1], p2[1]), r, c)
+                continue
             d.line((p1, p2), fill=c, width=max(1, round(w * SS)))
             for px, py in (p1, p2):   # 圆头
                 d.ellipse((px - r, py - r, px + r, py + r), fill=c)
