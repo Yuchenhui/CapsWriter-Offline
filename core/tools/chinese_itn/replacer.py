@@ -257,6 +257,9 @@ def replace(match):
     elif _WAN_TERM.search(original):
         final = original
 
+    elif [c for c in original if c in '零〇一二两三四五六七八九十百千万亿幺点'] in (['一'] * 2, ['一'] * 3):   # 本地改: "唯一一个 / 统一一下 / 一一对应" 的 "一一" 不是 11 (数字字符只有 2-3 个"一")
+        final = original
+
     elif match.group(3) == '两' and (string[match.end(3):match.end(3) + 1] or '_') not in '百千万亿':   # 本地改 (第 3 组是数字部分, original 含量词): 单独的"两"是口语量词 (两天/两个/两次), 不写成 2; "两百" 等仍转
         final = original
 
