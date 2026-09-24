@@ -289,6 +289,13 @@ class ToastWindowRecording:
                                                margin=capsule_themes.MARGIN, themed=True)
             if self._ulw is not None:
                 self._themed = capsule_themes.Capsule(self._theme)
+                # 胶囊显示期间把系统计时器精度提到 1ms (浏览器做动画同样如此), 关窗时恢复; 否则 60fps 定时只能到 ~38fps
+                try:
+                    import ctypes
+                    ctypes.windll.winmm.timeBeginPeriod(1)
+                    self.window.bind('<Destroy>', lambda e: e.widget is self.window and ctypes.windll.winmm.timeEndPeriod(1), add='+')
+                except Exception:
+                    pass
         if self._themed is None:
             self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
         if self._ulw is None:   # 退回 Tk 画法: 抠图色透明 + 整窗 alpha
@@ -383,7 +390,13 @@ class ToastWindowRecording:
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
             return
-        self._after_id = self.window.after(self._themed.interval_ms(now), self._tick)
+        # 按固定节拍排下一帧 (目标时刻累加, 扣掉本帧绘制与调度开销), 否则 16ms 等待实际成 ~20ms
+        step = self._themed.interval_ms(now) / 1000
+        due = getattr(self, '_due', now) + step
+        if due < now - step:             # 落后太多 (卡顿) 就重新对齐, 不追帧
+            due = now + step
+        self._due = due
+        self._after_id = self.window.after(max(1, round((due - time.perf_counter()) * 1000)), self._tick)
 
     def _enter_processing(self) -> None:
         self._text = _PROC_LABEL

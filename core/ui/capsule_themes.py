@@ -13,7 +13,7 @@ import math
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-SS = 2            # 超采样倍数
+SS = 4            # 超采样倍数 (只在胶囊大小的画板上画, 4 倍也便宜; 2 倍时圆头/细边发毛)
 MARGIN = 44       # 窗口四周为阴影预留的边距 (阴影下移 12 + 模糊 32)
 
 
@@ -88,6 +88,17 @@ class Pen:
             self.d.ellipse((x - w / 2, y - w / 2, x + w / 2, y + w / 2), fill=color)
 
 
+def inset_top(pen: Pen, x0, y0, w, h, alpha):
+    """CSS inset 0 1px 0 rgba(255,255,255,alpha): 形状减去下移 1px 的同形状 = 顶部一道随圆角弯曲的细高光"""
+    size, r = pen.img.size, h / 2 * SS
+    a, b = Image.new('L', size, 0), Image.new('L', size, 0)
+    ImageDraw.Draw(a).rounded_rectangle((pen._x(x0), pen._y(y0), pen._x(x0 + w), pen._y(y0 + h)), radius=r, fill=255)
+    ImageDraw.Draw(b).rounded_rectangle((pen._x(x0), pen._y(y0 + 1), pen._x(x0 + w), pen._y(y0 + h + 1)), radius=r, fill=255)
+    layer = Image.new('RGBA', size, (255, 255, 255, 0))
+    layer.putalpha(ImageChops.subtract(a, b).point(lambda v: round(v * alpha)))
+    pen.img.alpha_composite(layer)
+
+
 def sparkle(cx, cy, size, angle_deg=0.0):
     """四角星芒 (icons/sparkle.svg, 24x24 画布) -> 以 (cx, cy) 为中心、边长 size 的多边形顶点"""
     pts = ((12, 2), (14.2, 8.6), (21, 11), (14.2, 13.4), (12, 20), (9.8, 13.4), (3, 11), (9.8, 8.6))
@@ -111,7 +122,8 @@ class Obsidian:
     MAX_W = max(W_REC, W_PROC)
     BG, FG, RED, GREEN = '#0a0a0c', '#f4f4f5', '#ff5a4e', '#34c759'
     SHADOW = dict(dy=12, blur=16, alpha=0.5)                        # CSS: 0 12px 32px rgba(0,0,0,.5)
-    # 各声条的扰动周期/相位 (取自预览页 animation-duration / delay)
+    # 各声条的基准高度 / 伸缩周期 / 相位 (取自预览页 height / animation-duration / delay; 每根 scaleY 0.22<->1)
+    _BASE = (8, 11, 14, 13, 16, 20, 19, 22, 25, 22, 22, 18, 18, 17, 13, 13, 13, 9)
     _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 3
     _DELAY = (0, -.12, -.24, -.35, -.47, -.59, -.71, -.82, -.94, -.06, -.18, -.29, -.41, -.53, -.65, -.76, -.88, 0)
 
@@ -121,6 +133,7 @@ class Obsidian:
     def shell(self, pen: Pen, x0, y0, w):
         h = self.H
         pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=(255, 255, 255, 23), width=1)
+        inset_top(pen, x0 + 1, y0 + 1, w - 2, h - 2, 0.06)      # 边框内侧的顶部内高光
 
     def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
         cy = y0 + self.H / 2
@@ -131,14 +144,13 @@ class Obsidian:
             k = ease_out(u / 0.7)
             pen.circle(dx, cy, 4 + 6 * k, fill=rgba(self.RED, 0.55 * (1 - k) * fade))
         pen.circle(dx, cy, 4, fill=rgba(self.RED, fade))
-        # 声波: 高 6-26, 包络中间高两边低, 各自小扰动; flatten -> 落到 4px (切到整理态)
+        # 声波: 每根按设计稿的基准高度与各自节奏伸缩 (scaleY 0.22<->1), 再乘真实音量 —— 不说话落平成 3px;
+        # flatten -> 落到 4px (切到整理态)
         bx = x0 + 16 + 8 + 14
-        n = self.BAR_N
-        for i in range(n):
-            env = 1 - abs(i - (n - 1) / 2) / ((n - 1) / 2)
-            wob = 0.75 + 0.25 * math.sin(2 * math.pi * (t - self._DELAY[i]) / self._DUR[i])
-            h = 6 + 20 * level * (0.4 + 0.6 * env) * wob
-            h = h + (4 - h) * flatten
+        for i in range(self.BAR_N):
+            g = wave(t - self._DELAY[i], self._DUR[i])
+            h = 3 + (self._BASE[i] * (0.22 + 0.78 * g) - 3) * min(1.0, level * 1.15)
+            h = max(3.0, h) + (4 - max(3.0, h)) * flatten
             x = bx + i * (self.BAR_W + self.BAR_GAP)
             pen.rrect(x, cy - h / 2, x + self.BAR_W, cy + h / 2, 1.5, fill=rgba(self.FG, fade))
 
@@ -181,30 +193,30 @@ class Capsule:
 
     def __init__(self, theme):
         self.th = theme
-        self.W = int(math.ceil(theme.MAX_W)) + 2 * MARGIN
-        self.H = int(theme.H) + 2 * MARGIN
+        self.CW, self.CH = int(math.ceil(theme.MAX_W)) + 2, int(theme.H) + 2    # 胶囊画板 (四周留 1px 给抗锯齿)
+        self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距)
         self.t0 = None
         self.mode = 'recording'
         self.since = 0.0               # 进入当前模式的时刻
         self.level = 0.0               # 平滑后的音量
         self._last = None
         self._shadow = {}
-        self._shells = {}              # (宽, 缩放, 位移) -> (外壳 SS 图, 蒙版 SS 灰度); 平稳状态每帧复用
+        self._shells = {}              # 宽 -> (外壳 1x RGBA, 蒙版 1x L); 4 倍精度画一次缓存, 平稳状态每帧复用
 
     def set_mode(self, mode: str, now: float) -> None:
         if mode != self.mode:
             self.mode, self.since = mode, now
 
     def interval_ms(self, now: float) -> int:
-        """帧间隔: 出现/切换/完成动画期间 ~64fps, 平稳录音与整理 ~32fps (每帧 3-7ms, 省一半 CPU)"""
-        busy = self.mode == 'done' or self.t0 is None or now - self.t0 < APPEAR or now - self.since < TO_PROC + 0.05
-        return 15 if busy else 31
+        """帧间隔 16ms (60fps; 需胶囊显示期间 timeBeginPeriod(1), 否则 Tk 定时被拖到 15.6ms 刻度只有 ~38fps).
+        只在胶囊大小的画板上画, 每帧约 1ms"""
+        return 1000 / 60
 
     def finished(self, now: float) -> bool:
         return self.mode == 'done' and now - self.since >= SHRINK + POP + HOLD + FADE
 
     def _shadow_img(self, w: int):
-        """阴影层 (1 倍分辨率), 按胶囊宽度缓存 —— 缩成圆的过渡里宽度在变"""
+        """阴影层 (整窗 1 倍), 按胶囊宽度缓存 —— 缩成圆的过渡里宽度在变"""
         img = self._shadow.get(w)
         if img is None:
             sh = self.th.SHADOW
@@ -216,19 +228,18 @@ class Capsule:
             self._shadow[w] = img
         return img
 
-    def _shell(self, w, s, dy):
-        key = (round(w * 4), round(s * 200), round(dy * 8))
+    def _shell(self, w):
+        key = round(w * 4)
         hit = self._shells.get(key)
         if hit is None:
             if len(self._shells) > 64:     # 过渡里每帧宽度不同, 防无限增长
                 self._shells.clear()
-            cx, cy = self.W / 2, self.H / 2
-            pen, mask = Pen(self.W, self.H), Pen(self.W, self.H)
-            for p in (pen, mask):
-                p.transform(s, cx, cy, dy)
-            self.th.shell(pen, cx - w / 2, MARGIN, w)
-            mask.rrect(cx - w / 2, MARGIN, cx + w / 2, MARGIN + self.th.H, self.th.H / 2, fill=(255, 255, 255, 255))
-            hit = self._shells[key] = (pen.img, mask.img.getchannel('A'))
+            x0 = (self.CW - w) / 2
+            pen, mask = Pen(self.CW, self.CH), Pen(self.CW, self.CH)
+            self.th.shell(pen, x0, 1, w)
+            mask.rrect(x0, 1, x0 + w, 1 + self.th.H, self.th.H / 2, fill=(255, 255, 255, 255))
+            hit = self._shells[key] = (pen.img.convert('RGBa').reduce(SS).convert('RGBA'),
+                                       mask.img.getchannel('A').reduce(SS))
         return hit
 
     def frame(self, now: float, target_level: float):
@@ -243,9 +254,8 @@ class Capsule:
 
         th, t = self.th, now - self.t0
         el = now - self.since
-        cx, cy = self.W / 2, self.H / 2
-        x0 = lambda w: cx - w / 2   # noqa: E731
-        y0 = MARGIN
+        x0 = lambda w: (self.CW - w) / 2   # noqa: E731
+        y0 = 1
 
         # 出现: 透明度 0->1, 缩放 0.9->1, 上移 6px; 消失: 透明度 1->0, 缩放 1->0.9
         a = ease_out(t / APPEAR)
@@ -254,8 +264,7 @@ class Capsule:
             k = ease_in((el - SHRINK - POP - HOLD) / FADE)
             a, s = 1 - k, 1 - 0.1 * k
 
-        inner = Pen(self.W, self.H)
-        inner.transform(s, cx, cy, dy)
+        inner = Pen(self.CW, self.CH)
         if self.mode == 'recording':
             w = th.width('recording')
             th.paint_recording(inner, x0(w), y0, t, self.level, 1.0)
@@ -271,14 +280,16 @@ class Capsule:
             if m < 1:
                 th.paint_processing(inner, x0(w), y0, t, 1 - ease_out(m / 0.6))   # 缩到 60% 前淡完
             if el > SHRINK:
-                th.paint_done(inner, cx, cy, (el - SHRINK) / POP)
+                th.paint_done(inner, self.CW / 2, 1 + th.H / 2, (el - SHRINK) / POP)
 
-        # 内容裁进胶囊: 蒙版 = 外壳形状 (缩成圆的过渡里内容不会露到外面)
-        shell, mask = self._shell(w, s, dy)
-        inner.img.putalpha(ImageChops.multiply(inner.img.getchannel('A'), mask))
-        base = shell.copy()
-        base.alpha_composite(inner.img)
-
-        content = base.convert('RGBa').reduce(SS).convert('RGBA')   # 预乘后缩小, 边缘不发黑
-        img = Image.alpha_composite(self._shadow_img(max(int(th.H), round(w * s))), content)
+        # 内容 (4 倍画, 预乘后缩小) 按外壳蒙版裁剪 -> 叠到缓存的外壳上
+        shell, mask = self._shell(w)
+        content = inner.img.convert('RGBa').reduce(SS).convert('RGBA')
+        content.putalpha(ImageChops.multiply(content.getchannel('A'), mask))
+        cap = shell.copy()
+        cap.alpha_composite(content)
+        if abs(s - 1) > 1e-3:          # 出现/消失时整体缩放 (只有前 0.18s 和最后 0.2s)
+            cap = cap.resize((max(1, round(self.CW * s)), max(1, round(self.CH * s))), Image.LANCZOS)
+        img = self._shadow_img(max(int(th.H), round(w))).copy()
+        img.alpha_composite(cap, (round((self.W - cap.width) / 2), round(MARGIN - 1 + (self.CH - cap.height) / 2 + dy)))
         return img, a
