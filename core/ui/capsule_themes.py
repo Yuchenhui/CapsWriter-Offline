@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 SS = 4            # 超采样倍数 (只在胶囊大小的画板上画, 4 倍也便宜; 2 倍时圆头/细边发毛)
 MARGIN = 44       # 窗口四周为阴影预留的边距 (阴影下移 12 + 模糊 32)
@@ -79,6 +79,10 @@ class Pen:
     def polygon(self, pts, fill):
         self.d.polygon([(self._x(x), self._y(y)) for x, y in pts], fill=fill)
 
+    def text(self, x, y, s, font, color):
+        """左端、垂直居中对齐; font 须按 SS 倍字号加载"""
+        self.d.text((self._x(x), self._y(y)), s, font=font, fill=color, anchor='lm')
+
     def polyline(self, pts, color, width):
         """圆头圆角折线 (对勾)"""
         p = [(self._x(x), self._y(y)) for x, y in pts]
@@ -99,6 +103,21 @@ def inset_top(pen: Pen, x0, y0, w, h, alpha):
     pen.img.alpha_composite(layer)
 
 
+_FONT_FILES = ('JetBrainsMonoNerdFontMono-Medium.ttf', 'CascadiaMono.ttf', 'consola.ttf')   # 设计: JetBrains Mono 500
+
+
+def mono_font(px: float):
+    """等宽字体 (按 SS 倍字号加载); 都找不到返回 None, 调用方不画计时"""
+    import os
+    for d in (os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\Windows\Fonts'), os.path.expandvars(r'%WINDIR%\Fonts')):
+        for f in _FONT_FILES:
+            try:
+                return ImageFont.truetype(os.path.join(d, f), round(px * SS))
+            except OSError:
+                continue
+    return None
+
+
 def sparkle(cx, cy, size, angle_deg=0.0):
     """四角星芒 (icons/sparkle.svg, 24x24 画布) -> 以 (cx, cy) 为中心、边长 size 的多边形顶点"""
     pts = ((12, 2), (14.2, 8.6), (21, 11), (14.2, 13.4), (12, 20), (9.8, 13.4), (3, 11), (9.8, 8.6))
@@ -117,15 +136,20 @@ class Obsidian:
     H = 44
     BAR_N, BAR_W, BAR_GAP = 18, 3, 3
     BARS_W = BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP                  # 105
-    W_REC = 16 + 8 + 14 + BARS_W + 18                               # 左边距 + 红点 + 间距 + 声波 + 右边距
     W_PROC = 38 + BARS_W + 20                                       # 设计为 14+16+10=40, 与录音态声条起点对齐改 38
-    MAX_W = max(W_REC, W_PROC)
     BG, FG, RED, GREEN = '#0a0a0c', '#f4f4f5', '#ff5a4e', '#34c759'
     SHADOW = dict(dy=12, blur=16, alpha=0.5)                        # CSS: 0 12px 32px rgba(0,0,0,.5)
     # 各声条的基准高度 / 伸缩周期 / 相位 (取自预览页 height / animation-duration / delay; 每根 scaleY 0.22<->1)
     _BASE = (8, 11, 14, 13, 16, 20, 19, 22, 25, 22, 22, 18, 18, 17, 13, 13, 13, 9)
     _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 3
     _DELAY = (0, -.12, -.24, -.35, -.47, -.59, -.71, -.82, -.94, -.06, -.18, -.29, -.41, -.53, -.65, -.76, -.88, 0)
+
+    def __init__(self):
+        # 录音计时 (设计: 13px 等宽, 白 55%, 在声条右边隔 14px): 左边距 + 红点 + 间距 + 声波 [+ 14 + 计时] + 右边距
+        self.font = mono_font(13)
+        self.timer_w = self.font.getlength('0:00') / SS if self.font else 0
+        self.W_REC = 16 + 8 + 14 + self.BARS_W + (14 + self.timer_w if self.font else 0) + 18
+        self.MAX_W = max(self.W_REC, self.W_PROC)
 
     def width(self, mode: str) -> float:
         return {'recording': self.W_REC, 'processing': self.W_PROC}.get(mode, self.H)
@@ -153,12 +177,15 @@ class Obsidian:
             h = max(3.0, h) + (4 - max(3.0, h)) * flatten
             x = bx + i * (self.BAR_W + self.BAR_GAP)
             pen.rrect(x, cy - h / 2, x + self.BAR_W, cy + h / 2, 1.5, fill=rgba(self.FG, fade))
+        if self.font:   # 计时 m:ss (切到整理态时随 fade 淡出)
+            pen.text(bx + self.BARS_W + 14, cy, f'{int(t) // 60}:{int(t) % 60:02d}', self.font, rgba('#ffffff', 0.55 * fade))
 
     def paint_processing(self, pen: Pen, x0, y0, t, fade):
         cy = y0 + self.H / 2
-        # 星芒: 缩放 0.8<->1.1, 旋转 0<->45°, 透明度 0.7<->1, 周期 1.6
+        # 星芒: 设计为 16px 缩放 0.8<->1.1 旋转 0<->45° 透明度 0.7<->1; 本地改 (用户: 小号十字阶段显得廉价)
+        # -> 18px 缩放 0.92<->1.05, 旋转 0<->22°, 透明度 0.85<->1, 周期 1.6, 全程饱满只留呼吸感
         f = wave(t, 1.6)
-        pen.polygon(sparkle(x0 + 14 + 8, cy, 16 * (0.8 + 0.3 * f), 45 * f), fill=rgba('#ffffff', (0.7 + 0.3 * f) * fade))
+        pen.polygon(sparkle(x0 + 14 + 8, cy, 18 * (0.92 + 0.13 * f), 22 * f), fill=rgba('#ffffff', (0.85 + 0.15 * f) * fade))
         # 压平的声条: 4px 高, 依次亮起 (透明度 .18 -> 1, 高度 x1.8), 周期 1.2, 每根延迟 0.05
         bx = x0 + 38
         for i in range(self.BAR_N):
