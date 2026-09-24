@@ -48,6 +48,26 @@ def _bottom_margin() -> int:
     return _BOTTOM_MARGIN
 
 
+def _level_target(raw: float, dt: float) -> float:
+    """麦克风 RMS -> 0~1 波形幅度: 按高出底噪的 dB 映射 (经典样式与主题胶囊共用).
+    底噪往下平滑跟随 (时间常数 0.11s, 不低于 -75 dB 防全零块), 往上每秒只涨 0.5 dB; dt = 距上次调用的秒数"""
+    global _floor_db
+    db = 20 * math.log10(max(raw, 1e-6))
+    if db < _floor_db:
+        _floor_db = max(-75.0, _floor_db + (db - _floor_db) * (1 - math.exp(-dt / 0.11)))
+    else:
+        _floor_db += _FLOOR_RISE_DB_PER_S * dt
+    return min(1.0, max(0.0, (db - _floor_db - _DB_START) / _DB_RANGE)) ** _LEVEL_GAMMA
+
+
+def _capsule_theme_name() -> str:
+    try:
+        from config_client import ClientConfig
+        return getattr(ClientConfig, 'capsule_theme', 'auto')
+    except Exception:
+        return 'auto'
+
+
 def _read_mic_level() -> tuple:
     """读取实时麦克风电平 (level, fresh)；不可用时返回 (0.0, False) 以回退合成动画。"""
     try:
@@ -139,7 +159,7 @@ _DOT_TAIL = 2.2           # 光点光晕宽度 (点数, 越大拖尾越长)
 # 本地改 2026-09-24: 固定噪声门 + 线性增益 -> 按"高出底噪多少 dB"映射. 实测各句说话 -44 ~ -8 dBFS、底噪 -82 ~ -36 dBFS,
 # 固定门限 (-44 dBFS) 下小声几乎不动, 嘈杂处又会空跳. 底噪跟踪: 低了立刻跟下来, 高了每帧只涨 0.02 dB (说话不会被当成底噪)
 _FLOOR_INIT_DB = -60.0     # 首次录音前的底噪假设; 之后沿用上一次录音学到的值
-_FLOOR_RISE_DB = 0.02      # 底噪每帧最多上涨 (dB), ~25fps 下 0.5 dB/秒
+_FLOOR_RISE_DB_PER_S = 0.5  # 底噪每秒最多上涨 (dB)
 _DB_START = 6.0            # 高出底噪这么多 dB 才开始动
 _DB_RANGE = 26.0           # 再高出这么多 dB 到满幅
 _LEVEL_GAMMA = 0.7         # 感知曲线（<1 把小音量抬起来）
@@ -209,6 +229,11 @@ class ToastWindowRecording:
         from core.ui.layered_renderer import theme
         self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
         self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
+        # 本地改 2026-09-24: 主题胶囊 (core/ui/capsule_themes.py, 托盘「胶囊主题」选); None = 经典样式
+        from core.ui import capsule_themes
+        self._theme = capsule_themes.get(_capsule_theme_name())
+        self._themed = None
+        self._last_t = None
 
         self.window = tk.Toplevel(parent_root)
         self.window.overrideredirect(True)
@@ -225,6 +250,8 @@ class ToastWindowRecording:
         self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
                             + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
         self._h = int(_PILL_H)
+        if self._theme is not None:
+            self._w, self._h = int(math.ceil(self._theme.MAX_W)), int(self._theme.H)
 
         self.canvas = tk.Canvas(
             self.window, width=self._w, height=self._h,
@@ -257,7 +284,13 @@ class ToastWindowRecording:
         self._mid_y = self._h / 2
 
         self.window.deiconify()
-        self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
+        if self._theme is not None:
+            self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom,
+                                               margin=capsule_themes.MARGIN, themed=True)
+            if self._ulw is not None:
+                self._themed = capsule_themes.Capsule(self._theme)
+        if self._themed is None:
+            self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
         if self._ulw is None:   # 退回 Tk 画法: 抠图色透明 + 整窗 alpha
             try:
                 self.window.attributes('-transparentcolor', _CHROMA)
@@ -328,16 +361,42 @@ class ToastWindowRecording:
         # 状态切换：update_text 可能从任意线程置 _mode，重绘只在本 Tk 线程做
         if self._mode != self._applied_mode:
             self._applied_mode = self._mode
-            self._text = _PROC_LABEL
-            self._proc_frames = 0
-            self._proc_t0 = time.perf_counter()
-            # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
-            if self._ulw is None:
-                self.canvas.delete('all')
-                self._draw_static()
-            # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
-            self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
+            if self._mode == 'done':
+                if self._themed is None:     # 经典样式没有完成动画: 直接关
+                    self._on_proc_timeout()
+                    return
+            else:
+                self._enter_processing()
+        if self._themed is not None:
+            self._themed_frame()
+            return
+        self._tick_classic()
 
+    def _themed_frame(self) -> None:
+        now = time.perf_counter()
+        dt = 0.016 if self._last_t is None else now - self._last_t
+        self._last_t = now
+        self._themed.set_mode({'listening': 'recording'}.get(self._applied_mode, self._applied_mode), now)
+        raw, fresh = _read_mic_level()
+        img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
+        self._ulw.blit(img, a)
+        if self._themed.finished(now):
+            self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
+            return
+        self._after_id = self.window.after(self._themed.interval_ms(now), self._tick)
+
+    def _enter_processing(self) -> None:
+        self._text = _PROC_LABEL
+        self._proc_frames = 0
+        self._proc_t0 = time.perf_counter()
+        # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
+        if self._ulw is None:
+            self.canvas.delete('all')
+            self._draw_static()
+        # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
+        self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
+
+    def _tick_classic(self) -> None:
         processing = (self._applied_mode == 'processing')
 
         if processing:
@@ -375,11 +434,7 @@ class ToastWindowRecording:
             # 拿不到新鲜电平时回退到合成的“说话般”起伏
             raw, fresh = _read_mic_level()
             if fresh:
-                global _floor_db
-                db = 20 * math.log10(max(raw, 1e-6))
-                # 往下平滑跟随, 且不低于 -75 dB (麦克风刚开时可能送全零块, 否则底噪掉到 -120 后一直满幅)
-                _floor_db = max(-75.0, _floor_db + (db - _floor_db) * 0.3) if db < _floor_db else _floor_db + _FLOOR_RISE_DB
-                target = min(1.0, max(0.0, (db - _floor_db - _DB_START) / _DB_RANGE)) ** _LEVEL_GAMMA
+                target = _level_target(raw, _FRAME_MS / 1000)
                 k = _LEVEL_ATTACK if target > self._level else _LEVEL_DECAY
                 self._level += (target - self._level) * k
                 speech = _LEVEL_FLOOR + (1.0 - _LEVEL_FLOOR) * self._level
@@ -468,6 +523,9 @@ class ToastWindowRecording:
         可能由非 Tk 线程调用，因此只做原子赋值（先超时后模式，_tick 察觉模式
         切换时超时值已就绪），重绘在 Tk 线程 _tick 中完成。
         """
+        if new_text == 'done':            # 本地改 2026-09-24: 文字已上屏 -> 完成态 (主题胶囊播对勾, 经典样式直接关)
+            self._mode = 'done'
+            return
         try:
             self._proc_timeout_ms = max(_PROC_TIMEOUT_MS, int(new_text.split(':', 1)[1]))
         except (IndexError, ValueError):

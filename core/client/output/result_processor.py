@@ -286,8 +286,8 @@ class ResultProcessor:
             # 流式路径的首个 chunk 钩子会更早关闭,这里只是兜底
             close_recording_hud()
         else:
-            # 上屏在即，先撤掉「正在转文字」胶囊（胶囊自带 15s 超时兜底其余路径）
-            close_recording_hud()
+            # 上屏在即，先撤掉「正在转文字」胶囊（胶囊自带 15s 超时兜底其余路径）; 本地改: 主题胶囊改为播完成动画
+            close_recording_hud(done=True)
             await self.output.output(text, paste=paste)
             self.state.set_output_text(text)
             broadcast_output_udp(text)

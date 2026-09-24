@@ -164,8 +164,10 @@ class TrayManager:
                 user_state.save()
                 logger.info(f'胶囊主题: {v}')
             return action
-        return [(label, pick(v), lambda v=v: Config.capsule_theme == v)
-                for label, v in (('跟随系统', 'auto'), ('浅色', 'light'), ('深色', 'dark'))]
+        items = [(label, pick(v), lambda v=v: Config.capsule_theme == v)
+                 for label, v in (('跟随系统', 'auto'), ('浅色', 'light'), ('深色', 'dark'))]
+        from core.ui.capsule_themes import THEMES   # 设计包主题 (带完成动画)
+        return items + [None] + [(cls.name, pick(k), lambda k=k: Config.capsule_theme == k) for k, cls in THEMES.items()]
 
     @staticmethod
     def _toggle_structure():

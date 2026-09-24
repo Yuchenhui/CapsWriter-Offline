@@ -79,19 +79,21 @@ class LayeredRenderer:
     M = 16        # 窗口四周为投影预留的边距 (像素)
 
     @classmethod
-    def create(cls, window, w, h, x, y):
-        """w/h/x/y 是胶囊本身的尺寸与屏幕位置; 失败返回 None"""
+    def create(cls, window, w, h, x, y, margin=None, themed=False):
+        """w/h/x/y 是胶囊本身的尺寸与屏幕位置; 失败返回 None.
+        themed=True: 主题胶囊 (capsule_themes) 自己画整帧, 不建玻璃底, 用 blit() 贴图"""
         r = None
         try:
-            r = cls(window, w, h, x, y)
-            r.render([], 0.0)
+            r = cls(window, w, h, x, y, margin, themed)
+            if not themed:
+                r.render([], 0.0)
             return r
         except Exception:
             if r is not None:
                 r._free()
             return None
 
-    def __init__(self, window, w, h, x, y):
+    def __init__(self, window, w, h, x, y, margin=None, themed=False):
         from PIL import Image, ImageChops, ImageDraw
         self.Image, self.ImageChops, self.ImageDraw = Image, ImageChops, ImageDraw
 
@@ -99,12 +101,14 @@ class LayeredRenderer:
         self.hwnd = _u32.GetParent(window.winfo_id()) or window.winfo_id()
         _u32.SetWindowLongW(self.hwnd, _GWL_EXSTYLE, _u32.GetWindowLongW(self.hwnd, _GWL_EXSTYLE) | _WS_EX)
 
+        if margin is not None:
+            self.M = margin
         M = self.M
         self.pw, self.ph = w, h
         self.W, self.H = w + 2 * M, h + 2 * M
         self.pos = wintypes.POINT(x - M, y - M)
         self.size = wintypes.SIZE(self.W, self.H)
-        self.base = self._background()
+        self.base = None if themed else self._background()
 
         # 32 位自顶向下 DIB, 建一次复用
         bmi = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), self.W, -self.H, 1, 32, 0, 0, 0, 0, 0, 0)
@@ -182,9 +186,14 @@ class LayeredRenderer:
                 d.ellipse((px - r, py - r, px + r, py + r), fill=c)
         # 本地改: 先预乘再 reduce (整数倍盒式缩小): LANCZOS 1.15ms -> reduce ~0.4ms/帧 (实测整帧 1.59 -> 0.57ms),
         # 且预乘后再缩小, 边缘不会把透明像素的黑色平均进来. UpdateLayeredWindow 正好要预乘 alpha 的 BGRA
-        data = img.convert('RGBa').reduce(SS).tobytes('raw', 'BGRa')
-        ctypes.memmove(self.bits, data, len(data))
+        self._present(img.convert('RGBa').reduce(SS).tobytes('raw', 'BGRa'), alpha)
 
+    def blit(self, img, alpha):
+        """主题胶囊: img 是整窗大小 (胶囊 + 四周边距) 的 1 倍 RGBA"""
+        self._present(img.convert('RGBa').tobytes('raw', 'BGRa'), alpha)
+
+    def _present(self, data, alpha):
+        ctypes.memmove(self.bits, data, len(data))
         src = wintypes.POINT(0, 0)
         blend = _BLEND(0, 0, max(0, min(255, round(alpha * 255))), 1)   # AC_SRC_OVER, AC_SRC_ALPHA
         _u32.UpdateLayeredWindow(self.hwnd, self.hdc_screen, ctypes.byref(self.pos), ctypes.byref(self.size),

@@ -39,13 +39,14 @@ def close_active() -> None:
         inst.stop()
 
 
-def close_processing() -> None:
+def close_processing(done: bool = False) -> None:
     """识别结果到达时用: 只关「正在转文字」的胶囊.
-    本地改: 上一句结果晚到时, 当前胶囊可能已是下一句的录音胶囊, 不能关 (2026-09-24 11:23 实测关错后留下孤儿胶囊)"""
+    本地改: 上一句结果晚到时, 当前胶囊可能已是下一句的录音胶囊, 不能关 (2026-09-24 11:23 实测关错后留下孤儿胶囊)
+    done=True: 文字正常上屏 -> 播完成动画后自毁 (主题胶囊; 经典样式等同直接关)"""
     with _active_lock:
         inst = _active
     if inst is not None and inst._processing:
-        inst.stop()
+        inst.done() if done else inst.stop()
 
 
 def _register(inst: 'RecordingToast') -> None:
@@ -123,6 +124,17 @@ class RecordingToast:
             logger.debug(f'录音悬浮提示已切换为正在转文字 (超时兜底 {timeout_ms}ms)')
         except Exception as e:
             logger.error(f'切换转写状态失败: {e}', exc_info=True)
+
+    def done(self) -> None:
+        """切到完成态: 窗口自己播完动画后销毁 (经 stop_callback 回收注册). 期间按下一句会被 start() 直接关掉"""
+        if self._msg_id is None or self._manager is None:
+            return
+        try:
+            self._manager.update_toast(self._msg_id, 'done')
+            self._processing = False
+        except Exception as e:
+            logger.error(f'切换完成态失败: {e}', exc_info=True)
+            self.stop()
 
     def _on_window_gone(self) -> None:
         """胶囊窗口自行销毁（如超时自关）时的回调。
