@@ -12,7 +12,7 @@ from ctypes import wintypes
 # top/bottom = 玻璃底自上而下渐变 (RGBA, alpha 越小越透); rim = 外沿细边; shadow = 投影; dot = 转写中暗点
 THEMES = {
     'dark':  dict(top=(62, 69, 86, 225), bottom=(38, 43, 56, 215), rim=(255, 255, 255, 70), shadow=(0, 0, 0, 110), dot='#5c6478'),
-    'light': dict(top=(250, 251, 253, 235), bottom=(229, 233, 240, 225), rim=(0, 0, 0, 38), shadow=(0, 0, 0, 55), dot='#b3bbca'),
+    'light': dict(top=(226, 231, 239, 214), bottom=(202, 209, 221, 206), rim=(255, 255, 255, 110), shadow=(0, 0, 0, 70), dot='#98a2b3'),   # 2026-09-24: 纯白太扎眼 -> 磨砂浅灰蓝, 白色高光边
 }
 
 
