@@ -15,6 +15,25 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 SS = 4            # 超采样倍数 (只在胶囊大小的画板上画, 4 倍也便宜; 2 倍时圆头/细边发毛)
 MARGIN = 44       # 窗口四周为阴影预留的边距 (阴影下移 12 + 模糊 32)
+# 本地改 2026-09-24: 按显示器物理像素密度缩放 (两屏都 100% 缩放但像素密度差 1.76 倍, 同样像素看着大小不一).
+# 所有尺寸仍按逻辑像素写, 画到像素时乘 SCALE. 同一时刻只有一个胶囊在画, 由调用方在建胶囊前 set_scale().
+# ponytail: 模块级全局, 真要多胶囊并存再改成每个 Capsule 自带
+SCALE = 1.0
+
+
+def set_scale(k: float) -> None:
+    global SCALE
+    SCALE = max(0.3, min(3.0, k))
+
+
+def U() -> float:
+    """逻辑像素 -> 超采样画板像素"""
+    return SS * SCALE
+
+
+def px(v: float) -> int:
+    """逻辑像素 -> 屏幕像素"""
+    return round(v * SCALE)
 
 
 # ---- 缓动 ----------------------------------------------------------------
@@ -55,7 +74,7 @@ def rgba(hexstr: str, a: float = 1.0) -> tuple:
 # ---- 画笔: 逻辑像素坐标, 可围绕胶囊中心缩放/下移 ---------------------------
 class Pen:
     def __init__(self, w: int, h: int):
-        self.img = Image.new('RGBA', (w * SS, h * SS), (0, 0, 0, 0))
+        self.img = Image.new('RGBA', (px(w) * SS, px(h) * SS), (0, 0, 0, 0))
         self.d = ImageDraw.Draw(self.img, 'RGBA')   # 'RGBA' 模式: 半透明颜色与底下已画的内容混合
         self.s, self.cx, self.cy, self.dy = 1.0, 0.0, 0.0, 0.0
 
@@ -63,15 +82,19 @@ class Pen:
         self.s, self.cx, self.cy, self.dy = s, cx, cy, dy
 
     def _x(self, x):
-        return (self.cx + (x - self.cx) * self.s) * SS
+        return (self.cx + (x - self.cx) * self.s) * U()
 
     def _y(self, y):
-        return (self.cy + (y - self.cy) * self.s + self.dy) * SS
+        return (self.cy + (y - self.cy) * self.s + self.dy) * U()
 
     def rrect(self, x0, y0, x1, y1, r, fill=None, outline=None, width=1.0):
         box = (self._x(x0), self._y(y0), self._x(x1), self._y(y1))
-        self.d.rounded_rectangle(box, radius=r * self.s * SS, fill=fill, outline=outline,
-                                 width=max(1, round(width * self.s * SS)) if outline else 0)
+        wd = max(1, round(width * self.s * U())) if outline else 0
+        try:
+            self.d.rounded_rectangle(box, radius=r * self.s * U(), fill=fill, outline=outline, width=wd)
+        except ValueError:   # 缩放后坐标是小数, 半径略超一半时 PIL 内部取整报 "x1 must be >= x0": 半径压到一半以内取整重画
+            rad = math.floor(min(r * self.s * U(), (box[2] - box[0]) / 2, (box[3] - box[1]) / 2))
+            self.d.rounded_rectangle(box, radius=max(0, rad), fill=fill, outline=outline, width=wd)
 
     def circle(self, cx, cy, r, fill=None, outline=None, width=1.0):
         self.rrect(cx - r, cy - r, cx + r, cy + r, r, fill=fill, outline=outline, width=width)
@@ -86,7 +109,7 @@ class Pen:
     def polyline(self, pts, color, width):
         """圆头圆角折线 (对勾)"""
         p = [(self._x(x), self._y(y)) for x, y in pts]
-        w = width * self.s * SS
+        w = width * self.s * U()
         self.d.line(p, fill=color, width=max(1, round(w)))
         for x, y in p:
             self.d.ellipse((x - w / 2, y - w / 2, x + w / 2, y + w / 2), fill=color)
@@ -94,7 +117,7 @@ class Pen:
 
 def inset_top(pen: Pen, x0, y0, w, h, alpha):
     """CSS inset 0 1px 0 rgba(255,255,255,alpha): 形状减去下移 1px 的同形状 = 顶部一道随圆角弯曲的细高光"""
-    size, r = pen.img.size, h / 2 * SS
+    size, r = pen.img.size, h / 2 * U()
     a, b = Image.new('L', size, 0), Image.new('L', size, 0)
     ImageDraw.Draw(a).rounded_rectangle((pen._x(x0), pen._y(y0), pen._x(x0 + w), pen._y(y0 + h)), radius=r, fill=255)
     ImageDraw.Draw(b).rounded_rectangle((pen._x(x0), pen._y(y0 + 1), pen._x(x0 + w), pen._y(y0 + h + 1)), radius=r, fill=255)
@@ -106,13 +129,13 @@ def inset_top(pen: Pen, x0, y0, w, h, alpha):
 _FONT_FILES = ('JetBrainsMonoNerdFontMono-Medium.ttf', 'CascadiaMono.ttf', 'consola.ttf')   # 设计: JetBrains Mono 500
 
 
-def mono_font(px: float):
+def mono_font(px_: float):
     """等宽字体 (按 SS 倍字号加载); 都找不到返回 None, 调用方不画计时"""
     import os
     for d in (os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\Windows\Fonts'), os.path.expandvars(r'%WINDIR%\Fonts')):
         for f in _FONT_FILES:
             try:
-                return ImageFont.truetype(os.path.join(d, f), round(px * SS))
+                return ImageFont.truetype(os.path.join(d, f), round(px_ * U()))
             except OSError:
                 continue
     return None
@@ -125,7 +148,7 @@ def mic(pen: Pen, cx, cy, size, color, stroke=2.2):
     Y = lambda v: cy + (v - 12) * k     # noqa: E731
     w = stroke * k
     pen.rrect(X(9), Y(3), X(15), Y(14), 3 * k, outline=color, width=w)
-    pw = max(1, round(w * pen.s * SS))
+    pw = max(1, round(w * pen.s * U()))
     pen.d.arc((pen._x(X(5)), pen._y(Y(4)), pen._x(X(19)), pen._y(Y(18))), 0, 180, fill=color, width=pw)
     for x in (X(5), X(19)):                                   # 弧两端圆头
         pen.circle(x, Y(11), w / 2, fill=color)
@@ -165,7 +188,7 @@ class Obsidian:
     def __init__(self):
         # 录音计时 (设计: 13px 等宽, 白 55%, 在声条右边隔 14px): 左边距 + 红点 + 间距 + 声波 [+ 14 + 计时] + 右边距
         self.font = mono_font(13)
-        self.timer_w = self.font.getlength('0:00') / SS if self.font else 0
+        self.timer_w = self.font.getlength('0:00') / U() if self.font else 0
         self.W_REC = 16 + 8 + 14 + self.BARS_W + (14 + self.timer_w if self.font else 0) + 18
         self.MAX_W = max(self.W_REC, self.W_PROC)
 
@@ -266,7 +289,7 @@ class Aurora:
 
     # 声线区左右 20% 渐隐的蒙版 + 青->紫渐变色层, 画板大小固定, 按画板尺寸缓存
     def _fade_and_grad(self, pen: Pen, ax):
-        key = (pen.img.size, round(ax * SS))
+        key = (pen.img.size, round(ax * U()))
         hit = self._cache.get(key)
         if hit is None:
             x0, x1 = pen._x(ax), pen._x(ax + self.AREA_W)
@@ -275,8 +298,8 @@ class Aurora:
             violet = Image.new('RGBA', pen.img.size, rgba(self.VIOLET))
             track = Image.new('L', pen.img.size, 0)
             cy = pen._y(1 + self.H / 2)
-            ImageDraw.Draw(track).rounded_rectangle((x0, cy - SS, x1, cy + SS), radius=SS, fill=255)
-            band = _hgrad((round(60 * SS), 1), 0, round(60 * SS),
+            ImageDraw.Draw(track).rounded_rectangle((x0, cy - U(), x1, cy + U()), radius=U(), fill=255)
+            band = _hgrad((round(60 * U()), 1), 0, round(60 * U()),
                           ((0, rgba(self.CYAN, 0)), (0.35, rgba(self.CYAN)), (0.7, rgba(self.VIOLET)), (1, rgba(self.VIOLET, 0))))
             hit = self._cache[key] = (fade.getchannel('A'), grad, violet, ImageChops.multiply(track, fade.getchannel('A')), band)
         return hit
@@ -285,7 +308,7 @@ class Aurora:
         """折线画成蒙版, 乘渐隐与透明度, 用 color_img 上色后叠到画板 (整条线一次成形, 接缝不叠色)"""
         m = Image.new('L', pen.img.size, 0)
         ImageDraw.Draw(m).line([(pen._x(x), pen._y(y)) for x, y in pts], fill=round(255 * _clamp(alpha)),
-                               width=max(1, round(width * SS)), joint='curve')
+                               width=max(1, round(width * U())), joint='curve')
         layer = color_img.copy()
         layer.putalpha(ImageChops.multiply(m, fade))
         pen.img.alpha_composite(layer)
@@ -415,7 +438,7 @@ class Frost:
         pen.circle(ccx, cy, 16, fill=rgba(self.ACCENT, 0.12 * fade))                  # 强调色 12% 浅底
         a0 = 360 * (t % 0.9) / 0.9 - 90                                               # 转圈弧: 1/4 圈, 0.9s 一圈
         pen.d.arc((pen._x(ccx - 13.5 * 16 / 16), pen._y(cy - 13.5), pen._x(ccx + 13.5), pen._y(cy + 13.5)),
-                  a0, a0 + 90, fill=rgba(self.ACCENT, fade), width=round(2 * SS))
+                  a0, a0 + 90, fill=rgba(self.ACCENT, fade), width=round(2 * U()))
         pen.polygon(sparkle(ccx, cy, 14), fill=rgba(self.ACCENT, fade))
         bx = x0 + 10 + 32 + 14
         for i in range(self.BAR_N):                                                   # 压平条依次亮起 (同 A, 延迟 0.06)
@@ -443,7 +466,7 @@ class Halo:
     W_REC = W_PROC = MAX_W = 48                                     # 圆, 不是胶囊
     BG, ACCENT, STAR, GREEN = '#0a0b0e', '#ff7a59', '#f2f2f4', '#34c759'
 
-    _conic = None                     # 类级缓存: 整个进程只建一次 (建一次约十几 ms, 在 Tk 线程里, 别每个胶囊都建)
+    _conic = {}                       # 类级缓存, 按缩放比例: 每种比例整个进程只建一次 (建一次约十几 ms, 在 Tk 线程里)
 
     def shadows(self, mode):
         dark = (0, 10, 14, (0, 0, 0, 128))                          # 0 10px 28px rgba(0,0,0,.5)
@@ -460,8 +483,8 @@ class Halo:
     def _ring_img(self):
         """贴边 3px 圆环 (半径 24~27) x 锥形渐变 (前 40% 透明, 之后渐变到强调色), 只建一次, 大小 = 圆环外接方块;
         每帧只旋转这一小块 (原先每帧旋转整窗画板, 一帧 15ms)"""
-        if Halo._conic is None:
-            n = round(56 * SS)
+        if SCALE not in Halo._conic:
+            n = round(56 * U())
             c, R = n / 2, n
             img = Image.new('RGBA', (n, n), rgba(self.ACCENT, 0))
             d = ImageDraw.Draw(img)
@@ -470,11 +493,12 @@ class Halo:
                 d.pieslice((c - R, c - R, c + R, c + R), deg - 90, deg - 87, fill=rgba(self.ACCENT, 0 if u < 0.4 else (u - 0.4) / 0.6))
             ring = Image.new('L', (n, n), 0)
             rd = ImageDraw.Draw(ring)
-            rd.ellipse((c - 27 * SS, c - 27 * SS, c + 27 * SS, c + 27 * SS), fill=255)
-            rd.ellipse((c - 24 * SS, c - 24 * SS, c + 24 * SS, c + 24 * SS), fill=0)
+            u = U()
+            rd.ellipse((c - 27 * u, c - 27 * u, c + 27 * u, c + 27 * u), fill=255)
+            rd.ellipse((c - 24 * u, c - 24 * u, c + 24 * u, c + 24 * u), fill=0)
             img.putalpha(ImageChops.multiply(img.getchannel('A'), ring))
-            Halo._conic = img
-        return Halo._conic
+            Halo._conic[SCALE] = img
+        return Halo._conic[SCALE]
 
     def paint_under(self, pen: Pen, cx, cy, t, level, mode, el):
         if mode == 'recording' or (mode == 'processing' and el < 0.22):
@@ -524,7 +548,10 @@ class Capsule:
     def __init__(self, theme):
         self.th = theme
         self.CW, self.CH = int(math.ceil(theme.MAX_W)) + 2, int(theme.H) + 2    # 胶囊画板 (四周留 1px 给抗锯齿)
-        self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距)
+        self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距), 逻辑像素
+        # 屏幕像素 (按 SCALE): 调用方据此建窗 —— 窗口 = 胶囊 (cap_w x cap_h) + 四周 margin_px
+        self.win_w, self.win_h, self.margin_px = px(self.W), px(self.H), px(MARGIN)
+        self.cap_w, self.cap_h = self.win_w - 2 * self.margin_px, self.win_h - 2 * self.margin_px
         self.t0 = None
         self.mode = 'recording'
         self.since = 0.0               # 进入当前模式的时刻
@@ -549,13 +576,14 @@ class Capsule:
         """阴影 + 外发光层 (整窗 1 倍), 按 (胶囊宽度, 模式) 缓存 —— 缩成圆的过渡里宽度在变, 各模式发光不同"""
         img = self._shadow.get((w, mode))
         if img is None:
-            img = Image.new('RGBA', (self.W, self.H), (0, 0, 0, 0))
-            x0 = (self.W - w) / 2
+            k = SCALE
+            img = Image.new('RGBA', (self.win_w, self.win_h), (0, 0, 0, 0))
+            x0 = (self.win_w - w * k) / 2
             for dx, dy, blur, color in self.th.shadows(mode):
-                layer = Image.new('RGBA', (self.W, self.H), color[:3] + (0,))
-                ImageDraw.Draw(layer).rounded_rectangle((x0 + dx, MARGIN + dy, x0 + dx + w, MARGIN + dy + self.th.H),
-                                                        radius=self.th.H / 2, fill=color)
-                img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur)))
+                layer = Image.new('RGBA', (self.win_w, self.win_h), color[:3] + (0,))
+                ImageDraw.Draw(layer).rounded_rectangle((x0 + dx * k, (MARGIN + dy) * k, x0 + (dx + w) * k, (MARGIN + dy + self.th.H) * k),
+                                                        radius=self.th.H / 2 * k, fill=color)
+                img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur * k)))
             self._shadow[(w, mode)] = img
         return img
 
@@ -620,11 +648,12 @@ class Capsule:
         cap = shell.copy()
         cap.alpha_composite(content)
         if abs(s - 1) > 1e-3:          # 出现/消失时整体缩放 (只有前 0.18s 和最后 0.2s)
-            cap = cap.resize((max(1, round(self.CW * s)), max(1, round(self.CH * s))), Image.LANCZOS)
+            cap = cap.resize((max(1, round(cap.width * s)), max(1, round(cap.height * s))), Image.LANCZOS)
         img = self._shadow_img(max(int(th.H), round(w)), self.mode).copy()
         if hasattr(th, 'paint_under'):           # 画在胶囊外面的东西 (E 光环): 整窗画板, 不裁剪
             under = Pen(self.W, self.H)
             th.paint_under(under, self.W / 2, self.H / 2 + dy, t, self.level, self.mode, el)
             img.alpha_composite(under.img.convert('RGBa').reduce(SS).convert('RGBA'))
-        img.alpha_composite(cap, (round((self.W - cap.width) / 2), round(MARGIN - 1 + (self.CH - cap.height) / 2 + dy)))
+        img.alpha_composite(cap, (round((self.win_w - cap.width) / 2),
+                                  round((MARGIN - 1 + dy) * SCALE + (px(self.CH) - cap.height) / 2)))
         return img, a

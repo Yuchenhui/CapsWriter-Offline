@@ -60,6 +60,47 @@ def _level_target(raw: float, dt: float) -> float:
     return min(1.0, max(0.0, (db - _floor_db - _DB_START) / _DB_RANGE)) ** _LEVEL_GAMMA
 
 
+def _monitor_scale() -> float:
+    """鼠标所在显示器的物理像素密度 / 基准密度 (config capsule_px_per_cm, 默认 75.3 = 笔记本屏).
+    物理宽度取自注册表里该显示器的 EDID (字节 21 = 水平尺寸 cm). 读不到或配置为 0 时返回 1"""
+    try:
+        from config_client import ClientConfig
+        ref = float(getattr(ClientConfig, 'capsule_px_per_cm', 0) or 0)
+        if ref <= 0:
+            return 1.0
+        import ctypes
+        import winreg
+        from ctypes import wintypes
+
+        class MONITORINFOEXW(ctypes.Structure):
+            _fields_ = [('cbSize', wintypes.DWORD), ('rcMonitor', wintypes.RECT), ('rcWork', wintypes.RECT),
+                        ('dwFlags', wintypes.DWORD), ('szDevice', wintypes.WCHAR * 32)]
+
+        class DISPLAY_DEVICEW(ctypes.Structure):
+            _fields_ = [('cb', wintypes.DWORD), ('DeviceName', wintypes.WCHAR * 32), ('DeviceString', wintypes.WCHAR * 128),
+                        ('StateFlags', wintypes.DWORD), ('DeviceID', wintypes.WCHAR * 128), ('DeviceKey', wintypes.WCHAR * 128)]
+
+        u = ctypes.windll.user32
+        u.MonitorFromPoint.restype = ctypes.c_void_p
+        pt = wintypes.POINT()
+        u.GetCursorPos(ctypes.byref(pt))
+        mi = MONITORINFOEXW()
+        mi.cbSize = ctypes.sizeof(mi)
+        if not u.GetMonitorInfoW(ctypes.c_void_p(u.MonitorFromPoint(pt, 2)), ctypes.byref(mi)):
+            return 1.0
+        dd = DISPLAY_DEVICEW()
+        dd.cb = ctypes.sizeof(dd)
+        if not u.EnumDisplayDevicesW(mi.szDevice, 0, ctypes.byref(dd), 1):      # 1 = EDD_GET_DEVICE_INTERFACE_NAME
+            return 1.0
+        parts = dd.DeviceID.split('#')                                           # \?\DISPLAY#HKC271B#5&..&UID261#{guid}
+        key = rf'SYSTEM\CurrentControlSet\Enum\DISPLAY\{parts[1]}\{parts[2]}\Device Parameters'
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
+            cm = bytes(winreg.QueryValueEx(k, 'EDID')[0])[21]
+        return (mi.rcMonitor.right - mi.rcMonitor.left) / cm / ref if cm else 1.0
+    except Exception:
+        return 1.0
+
+
 def _capsule_theme_name() -> str:
     try:
         from config_client import ClientConfig
@@ -231,7 +272,9 @@ class ToastWindowRecording:
         self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
         # 本地改 2026-09-24: 主题胶囊 (core/ui/capsule_themes.py, 托盘「胶囊主题」选); None = 经典样式
         from core.ui import capsule_themes
+        capsule_themes.set_scale(_monitor_scale())        # 按鼠标所在屏的物理像素密度缩放, 两块屏上看着一样大
         self._theme = capsule_themes.get(_capsule_theme_name())
+        self._cap = capsule_themes.Capsule(self._theme) if self._theme is not None else None
         self._themed = None
         self._last_t = None
 
@@ -250,8 +293,8 @@ class ToastWindowRecording:
         self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
                             + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
         self._h = int(_PILL_H)
-        if self._theme is not None:
-            self._w, self._h = int(math.ceil(self._theme.MAX_W)), int(self._theme.H)
+        if self._cap is not None:
+            self._w, self._h = self._cap.cap_w, self._cap.cap_h
 
         self.canvas = tk.Canvas(
             self.window, width=self._w, height=self._h,
@@ -286,9 +329,9 @@ class ToastWindowRecording:
         self.window.deiconify()
         if self._theme is not None:
             self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom,
-                                               margin=capsule_themes.MARGIN, themed=True)
+                                               margin=self._cap.margin_px, themed=True)
             if self._ulw is not None:
-                self._themed = capsule_themes.Capsule(self._theme)
+                self._themed = self._cap
                 # 胶囊显示期间把系统计时器精度提到 1ms (浏览器做动画同样如此), 关窗时恢复; 否则 60fps 定时只能到 ~38fps
                 try:
                     import ctypes
