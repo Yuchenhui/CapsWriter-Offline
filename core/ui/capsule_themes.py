@@ -261,7 +261,7 @@ class Aurora:
 
     def shell(self, pen: Pen, x0, y0, w, mode='recording'):
         h = self.H
-        border = rgba(self.CYAN, 0.35) if mode == 'done' else rgba(self.VIOLET, 0.22)
+        border = rgba(self.CYAN, 0.35) if mode == 'done' else rgba(self.VIOLET, 0.14)   # 紫 22% -> 14%
         pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=border, width=1)
 
     # 声线区左右 20% 渐隐的蒙版 + 青->紫渐变色层, 画板大小固定, 按画板尺寸缓存
@@ -341,7 +341,7 @@ class Pebble:
 
     def shell(self, pen: Pen, x0, y0, w, mode='recording'):
         h = self.H
-        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG, 0.92), outline=(255, 255, 255, 20), width=1)
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG, 0.92), outline=(255, 255, 255, 10), width=1)   # 白 8% -> 4%
 
     def _dots(self, x0):
         return [x0 + 14 + i * (self.DOT_W + self.DOT_GAP) for i in range(self.DOT_N)]
@@ -454,7 +454,7 @@ class Halo:
 
     def shell(self, pen: Pen, x0, y0, w, mode='recording'):
         h = self.H
-        border = rgba(self.GREEN, 0.45) if mode == 'done' else (255, 255, 255, 26)
+        border = rgba(self.GREEN, 0.45) if mode == 'done' else (255, 255, 255, 10)   # 白 10% -> 4% (用户: 黑底与光环间夹一圈浅色, 对比太大)
         pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=border, width=1)
 
     def _ring_img(self):
