@@ -96,7 +96,11 @@ def _monitor_scale() -> float:
         key = rf'SYSTEM\CurrentControlSet\Enum\DISPLAY\{parts[1]}\{parts[2]}\Device Parameters'
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
             cm = bytes(winreg.QueryValueEx(k, 'EDID')[0])[21]
-        return (mi.rcMonitor.right - mi.rcMonitor.left) / cm / ref if cm else 1.0
+        if not cm:
+            return 1.0
+        # 只缩一部分: 完全按物理大小时外接屏 0.57 倍, 比周围界面文字还小 (用户: 太小看不清). 力度 0.4 -> 约 0.8 倍
+        strength = float(getattr(ClientConfig, 'capsule_density_strength', 0.4))
+        return ((mi.rcMonitor.right - mi.rcMonitor.left) / cm / ref) ** strength
     except Exception:
         return 1.0
 
