@@ -55,7 +55,7 @@ _SYSTEM = """<任务>
 6. 明确的改口：删掉被否定的说法和改口词，只留最终说法（"周四开会，哦不对，周五" -> "周五开会"）。改口词（不对、不是、哦不、我是说、应该是）只在确实用来更正前文时才删；"不是 A，是 B" 这种表达本身的对比不算改口，保留。
 7. 句首和句中无意义的填充词（嗯、呃、额、那个那个）删掉；有语气作用的句尾词（吧、呢、啊、嘛）保留。
 8. 明确的列举：用户按顺序说"第一……第二……第三……"或"首先……然后/其次……最后……"时，整理成编号 1. 2. 3.，去掉"第一""首先"这类序号词本身。
-   按 <换行> 的要求排版：允许换行时每项一行；禁止换行时写在同一行，各项用分号隔开（如 "1. 写需求；2. 评审；3. 开发"）。
+   每项一行。
    "第一次""第一名""首先要说明的是"这类不是在列举多项的，不编号。
 </要修的>
 
@@ -79,7 +79,7 @@ _SYSTEM = """<任务>
 输出：我觉得把这个文件发给小李吧
 输入：我不是说这个方案不好，是说它太贵了
 输出：我不是说这个方案不好，是说它太贵了
-输入（允许换行）：上线前要做三件事，第一备份数据库，第二停掉定时任务，第三通知客服
+输入：上线前要做三件事，第一备份数据库，第二停掉定时任务，第三通知客服
 输出：上线前要做三件事：
 1. 备份数据库
 2. 停掉定时任务
@@ -128,15 +128,7 @@ def _coverage(text: str, out: str) -> tuple:
     return kept, added
 
 
-_TERMINALS = ('windowsterminal.exe', 'cmd.exe', 'powershell.exe', 'pwsh.exe', 'conhost.exe', 'wezterm-gui.exe',
-              'alacritty.exe', 'mintty.exe', 'code.exe', 'cursor.exe', 'windsurf.exe')
-
-
-def multiline_ok(window: str) -> bool:
-    """终端 (及内嵌终端的编辑器) 里粘贴换行会逐行执行命令 -> 禁止换行; 窗口未知也按禁止处理"""
-    proc = (window or '').split('|')[0].strip().lower()
-    return bool(proc) and proc not in _TERMINALS
-
+# 不再按终端禁止换行 (2026-09-24): 用户的口述都进 Claude Code 输入框, 不进裸 shell, 多行没有逐行执行的风险.
 
 def _pinyin(text: str) -> str:
     """整句带声调拼音 (zhuan3 yi4); 非汉字原样保留. pypinyin 缺失时返回空串 (提示词照样可用)"""
@@ -218,8 +210,7 @@ def _call_api(text: str, pid: str, window: str = '', structure: bool = False) ->
         'messages': [
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': f'<识别结果>{text}</识别结果>\n<拼音>{_pinyin(text)}</拼音>'
-                                        + (f'\n<当前窗口>{window}</当前窗口>' if window else '')
-                                        + ('\n<换行>允许</换行>' if structure or multiline_ok(window) else '\n<换行>禁止：列举写在同一行</换行>')},
+                                        + (f'\n<当前窗口>{window}</当前窗口>' if window else '')},
         ],
         'max_tokens': len(text) * (3 if structure else 2) + 64,
         'temperature': 0,
@@ -261,9 +252,6 @@ def polish(text: str, choice=True, window: str = '', structure: bool = False) ->
         logger.info(f'二次整理 [{pid}] 结构化 {dt:.2f}s, 保留 {kept:.0%} / 新增 {added:.0%}' + (', 已分行' if '\n' in out else ''))
         logger.debug(f'结构化: {text} --> {out!r}')
         return out
-    if '\n' not in text and '\n' in out and not multiline_ok(window):   # 终端里多出换行 -> 贴进去可能逐行执行命令
-        logger.debug(f'二次整理放弃 (输出多出换行): {text} -X-> {out!r}')
-        return text
     # 比较前统一小写、去空白: "deep sick"->"DeepSeek" 这种大小写/空格差异不该算改动, 否则短句必被误拦
     out = _drop_cjk_inserts(text, out)
     change, deleted = _change_ratio(text, out, load_terms())
