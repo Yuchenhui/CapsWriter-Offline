@@ -118,6 +118,20 @@ def mono_font(px: float):
     return None
 
 
+def mic(pen: Pen, cx, cy, size, color, stroke=2.2):
+    """麦克风 (icons/mic.svg: 圆角矩形 x9 y3 6x11 rx3 + 下半圆弧 r7 + 竖线 18->21), 24x24 画布缩放到 size"""
+    k = size / 24
+    X = lambda v: cx + (v - 12) * k     # noqa: E731
+    Y = lambda v: cy + (v - 12) * k     # noqa: E731
+    w = stroke * k
+    pen.rrect(X(9), Y(3), X(15), Y(14), 3 * k, outline=color, width=w)
+    pw = max(1, round(w * pen.s * SS))
+    pen.d.arc((pen._x(X(5)), pen._y(Y(4)), pen._x(X(19)), pen._y(Y(18))), 0, 180, fill=color, width=pw)
+    for x in (X(5), X(19)):                                   # 弧两端圆头
+        pen.circle(x, Y(11), w / 2, fill=color)
+    pen.polyline([(X(12), Y(18)), (X(12), Y(21))], color, w)
+
+
 def sparkle(cx, cy, size, angle_deg=0.0):
     """四角星芒 (icons/sparkle.svg, 24x24 画布) -> 以 (cx, cy) 为中心、边长 size 的多边形顶点"""
     pts = ((12, 2), (14.2, 8.6), (21, 11), (14.2, 13.4), (12, 20), (9.8, 13.4), (3, 11), (9.8, 8.6))
@@ -308,7 +322,191 @@ class Aurora:
         pen.polyline(pts, rgba(self.CYAN, a), 2.2 * q)
 
 
-THEMES = {'obsidian': Obsidian, 'aurora': Aurora}
+# ---- 主题 C: 微点 Pebble ---------------------------------------------------
+class Pebble:
+    name = '微点'
+    H = 34
+    DOT_N, DOT_W, DOT_GAP = 5, 6, 5
+    W_REC = W_PROC = MAX_W = 14 + DOT_N * DOT_W + (DOT_N - 1) * DOT_GAP + 14   # 78
+    BG, FG, GREEN = '#08080a', '#f4f4f5', '#34c759'
+    SHADOWS = ((0, 8, 12, (0, 0, 0, 115)),)                         # 0 8px 24px rgba(0,0,0,.45)
+    _DUR = (0.9, 0.7, 0.8, 0.65, 0.95)                              # 预览页各点 animation-duration / delay
+    _DELAY = (-0.3, -0.1, -0.55, -0.2, -0.45)
+
+    def shadows(self, mode):
+        return self.SHADOWS
+
+    def width(self, mode: str) -> float:
+        return self.H if mode == 'done' else self.W_REC
+
+    def shell(self, pen: Pen, x0, y0, w, mode='recording'):
+        h = self.H
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG, 0.92), outline=(255, 255, 255, 20), width=1)
+
+    def _dots(self, x0):
+        return [x0 + 14 + i * (self.DOT_W + self.DOT_GAP) for i in range(self.DOT_N)]
+
+    def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
+        cy = y0 + self.H / 2
+        for i, x in enumerate(self._dots(x0)):
+            # 高度 6<->20 (各自节奏) x 真实音量; 不说话是 6x6 的圆点
+            h = 6 + 14 * wave(t - self._DELAY[i], self._DUR[i]) * min(1.0, level * 1.15)
+            h = h + (6 - h) * flatten
+            pen.rrect(x, cy - h / 2, x + self.DOT_W, cy + h / 2, 3, fill=rgba(self.FG, fade))
+
+    def paint_processing(self, pen: Pen, x0, y0, t, fade):
+        cy = y0 + self.H / 2
+        for i, x in enumerate(self._dots(x0)):
+            # 依次上跳 5px、透明 .35->1 ("对方正在输入"), 周期 1.1, 每个延迟 0.12; 关键帧 0/60/100% 静止, 30% 最高
+            u = ((t - 0.12 * i) % 1.1) / 1.1
+            g = ease_in_out(u / 0.3) if u < 0.3 else ease_in_out((0.6 - u) / 0.3) if u < 0.6 else 0.0
+            yy = cy - 5 * g
+            pen.rrect(x, yy - 3, x + self.DOT_W, yy + 3, 3, fill=rgba(self.FG, (0.35 + 0.65 * g) * fade))
+
+    def paint_done(self, pen: Pen, cx, cy, k):
+        s, a = pop(k)
+        q = s                                                        # check 16x16 画布, 显示 16px
+        pts = [(cx + (x - 8) * q, cy + (y - 8) * q) for x, y in ((3.5, 8.4), (6.4, 11.2), (12.5, 5))]
+        pen.polyline(pts, rgba(self.GREEN, a), 2.2 * q)
+
+
+# ---- 主题 D: 霜白 Frost ----------------------------------------------------
+class Frost:
+    name = '霜白'
+    H = 52
+    BAR_N, BAR_W, BAR_GAP = 14, 3, 3
+    BARS_W = BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP                  # 81
+    W_REC = W_PROC = MAX_W = 10 + 32 + 14 + BARS_W + 20             # 157
+    ACCENT, GREEN = '#2f6bff', '#1f9d55'
+    SHADOWS = ((0, 10, 14, (30, 34, 52, 36)), (0, 1, 1, (30, 34, 52, 20)))   # 0 10px 28px 14% + 0 1px 2px 8%
+    _BASE = (8, 11, 15, 14, 17, 21, 20, 21, 21, 16, 16, 12, 11, 11)
+    _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 2
+    _DELAY = (0, -.12, -.24, -.35, -.47, -.59, -.71, -.82, -.94, -.06, -.18, -.29, -.41, -.53)
+
+    def shadows(self, mode):
+        return self.SHADOWS
+
+    def width(self, mode: str) -> float:
+        return self.H if mode == 'done' else self.W_REC
+
+    def shell(self, pen: Pen, x0, y0, w, mode='recording'):
+        h = self.H
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=(255, 255, 255, 219), outline=(0, 0, 0, 15), width=1)
+
+    def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
+        cy = y0 + self.H / 2
+        ccx = x0 + 10 + 16
+        # 身后波纹: 同色圆 缩放 1->1.75, 透明 .45->0, 周期 1.4 ease-out
+        k = ease_out((t % 1.4) / 1.4)
+        pen.circle(ccx, cy, 16 * (1 + 0.75 * k), fill=rgba(self.ACCENT, 0.45 * (1 - k) * fade * (1 - flatten)))
+        pen.circle(ccx, cy, 16, fill=rgba(self.ACCENT, fade * (1 - flatten)))
+        mic(pen, ccx, cy, 16, rgba('#ffffff', fade * (1 - flatten)))
+        bx = x0 + 10 + 32 + 14
+        for i in range(self.BAR_N):
+            g = wave(t - self._DELAY[i], self._DUR[i])
+            h = 3 + (self._BASE[i] * (0.25 + 0.75 * g) - 3) * min(1.0, level * 1.15)
+            h = max(3.0, h) + (4 - max(3.0, h)) * flatten
+            x = bx + i * (self.BAR_W + self.BAR_GAP)
+            pen.rrect(x, cy - h / 2, x + self.BAR_W, cy + h / 2, 1.5, fill=rgba(self.ACCENT, fade))
+
+    def paint_processing(self, pen: Pen, x0, y0, t, fade):
+        cy = y0 + self.H / 2
+        ccx = x0 + 10 + 16
+        pen.circle(ccx, cy, 16, fill=rgba(self.ACCENT, 0.12 * fade))                  # 强调色 12% 浅底
+        a0 = 360 * (t % 0.9) / 0.9 - 90                                               # 转圈弧: 1/4 圈, 0.9s 一圈
+        pen.d.arc((pen._x(ccx - 13.5 * 16 / 16), pen._y(cy - 13.5), pen._x(ccx + 13.5), pen._y(cy + 13.5)),
+                  a0, a0 + 90, fill=rgba(self.ACCENT, fade), width=round(2 * SS))
+        pen.polygon(sparkle(ccx, cy, 14), fill=rgba(self.ACCENT, fade))
+        bx = x0 + 10 + 32 + 14
+        for i in range(self.BAR_N):                                                   # 压平条依次亮起 (同 A, 延迟 0.06)
+            g = wave(t - 0.06 * i, 1.2)
+            h = 4 * (1 + 0.8 * g)
+            x = bx + i * (self.BAR_W + self.BAR_GAP)
+            pen.rrect(x, cy - h / 2, x + self.BAR_W, cy + h / 2, 1.5, fill=rgba(self.ACCENT, (0.2 + 0.8 * g) * fade))
+        # 底部贴边 2px 进度条: 宽 40%, 从 -100% 滑到 +260% (自身宽), 1.4s, 被胶囊圆角裁掉
+        pw = self.W_PROC * 0.4
+        px = x0 - pw + (self.W_PROC * 0.4 * 3.6) * ease_in_out((t % 1.4) / 1.4)
+        pen.rrect(px, y0 + self.H - 3, px + pw, y0 + self.H - 1, 1, fill=rgba(self.ACCENT, fade))
+
+    def paint_done(self, pen: Pen, cx, cy, k):
+        s, a = pop(k)
+        pen.circle(cx, cy, 16 * s, fill=rgba(self.GREEN, a))
+        q = s                                                                          # check 16px
+        pts = [(cx + (x - 8) * q, cy + (y - 8) * q) for x, y in ((3.5, 8.4), (6.4, 11.2), (12.5, 5))]
+        pen.polyline(pts, rgba('#ffffff', a), 2.2 * q)
+
+
+# ---- 主题 E: 光环 Halo -----------------------------------------------------
+class Halo:
+    name = '光环'
+    H = 48
+    W_REC = W_PROC = MAX_W = 48                                     # 圆, 不是胶囊
+    BG, ACCENT, STAR, GREEN = '#0a0b0e', '#ff7a59', '#f2f2f4', '#34c759'
+
+    _conic = None                     # 类级缓存: 整个进程只建一次 (建一次约十几 ms, 在 Tk 线程里, 别每个胶囊都建)
+
+    def shadows(self, mode):
+        dark = (0, 10, 14, (0, 0, 0, 128))                          # 0 10px 28px rgba(0,0,0,.5)
+        return ((0, 0, 9, rgba(self.GREEN, 0.2)), dark) if mode == 'done' else (dark,)
+
+    def width(self, mode: str) -> float:
+        return self.H
+
+    def shell(self, pen: Pen, x0, y0, w, mode='recording'):
+        h = self.H
+        border = rgba(self.GREEN, 0.45) if mode == 'done' else (255, 255, 255, 26)
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=border, width=1)
+
+    def _ring_img(self):
+        """贴边 3px 圆环 (半径 24~27) x 锥形渐变 (前 40% 透明, 之后渐变到强调色), 只建一次, 大小 = 圆环外接方块;
+        每帧只旋转这一小块 (原先每帧旋转整窗画板, 一帧 15ms)"""
+        if Halo._conic is None:
+            n = round(56 * SS)
+            c, R = n / 2, n
+            img = Image.new('RGBA', (n, n), rgba(self.ACCENT, 0))
+            d = ImageDraw.Draw(img)
+            for deg in range(0, 360, 3):      # 每 3° 一块: 渐变平滑, 看不出台阶
+                u = deg / 360
+                d.pieslice((c - R, c - R, c + R, c + R), deg - 90, deg - 87, fill=rgba(self.ACCENT, 0 if u < 0.4 else (u - 0.4) / 0.6))
+            ring = Image.new('L', (n, n), 0)
+            rd = ImageDraw.Draw(ring)
+            rd.ellipse((c - 27 * SS, c - 27 * SS, c + 27 * SS, c + 27 * SS), fill=255)
+            rd.ellipse((c - 24 * SS, c - 24 * SS, c + 24 * SS, c + 24 * SS), fill=0)
+            img.putalpha(ImageChops.multiply(img.getchannel('A'), ring))
+            Halo._conic = img
+        return Halo._conic
+
+    def paint_under(self, pen: Pen, cx, cy, t, level, mode, el):
+        if mode == 'recording' or (mode == 'processing' and el < 0.22):
+            f = 1.0 if mode == 'recording' else 1 - ease_in_out(el / 0.22)
+            # 两层光环随音量呼吸: 内层 强调色 33% x (.9<->.4) 缩放 1-1.3; 外层 强调色 x (.25<->.1) 缩放 1.1-1.45
+            l1 = min(1.0, level * 1.15) * (0.6 + 0.4 * wave(t, 1.1))
+            l2 = min(1.0, level * 1.15) * (0.6 + 0.4 * wave(t + 0.4, 1.6))
+            pen.circle(cx, cy, 24 * (1.1 + 0.35 * l2), fill=rgba(self.ACCENT, (0.25 - 0.15 * l2) * f))
+            pen.circle(cx, cy, 24 * (1 + 0.3 * l1), fill=rgba(self.ACCENT, 0.33 * (0.9 - 0.5 * l1) * f))
+        if mode == 'processing':
+            # 贴边 3px 圆环 (24~27px), 锥形渐变 1.1s 一圈
+            f = ease_in_out(el / 0.22)
+            ring = self._ring_img().rotate(-360 * (t % 1.1) / 1.1, resample=Image.BICUBIC)
+            if f < 1:
+                ring.putalpha(ring.getchannel('A').point(lambda v: round(v * f)))
+            pen.img.alpha_composite(ring, (round(pen._x(cx) - ring.width / 2), round(pen._y(cy) - ring.height / 2)))
+
+    def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
+        mic(pen, x0 + 24, y0 + 24, 20, rgba(self.ACCENT, fade))
+
+    def paint_processing(self, pen: Pen, x0, y0, t, fade):
+        f = wave(t, 1.4)                                             # 星芒 缩放 .85<->1.1, 透明 .75<->1, 1.4s
+        pen.polygon(sparkle(x0 + 24, y0 + 24, 18 * (0.85 + 0.25 * f)), fill=rgba(self.STAR, (0.75 + 0.25 * f) * fade))
+
+    def paint_done(self, pen: Pen, cx, cy, k):
+        s, a = pop(k)
+        q = 20 / 16 * s                                              # check 16x16 画布, 显示 20px
+        pts = [(cx + (x - 8) * q, cy + (y - 8) * q) for x, y in ((3.5, 8.4), (6.4, 11.2), (12.5, 5))]
+        pen.polyline(pts, rgba(self.GREEN, a), 2.2 * q)
+
+
+THEMES = {'obsidian': Obsidian, 'aurora': Aurora, 'pebble': Pebble, 'frost': Frost, 'halo': Halo}
 
 
 def get(name: str):
@@ -424,5 +622,9 @@ class Capsule:
         if abs(s - 1) > 1e-3:          # 出现/消失时整体缩放 (只有前 0.18s 和最后 0.2s)
             cap = cap.resize((max(1, round(self.CW * s)), max(1, round(self.CH * s))), Image.LANCZOS)
         img = self._shadow_img(max(int(th.H), round(w)), self.mode).copy()
+        if hasattr(th, 'paint_under'):           # 画在胶囊外面的东西 (E 光环): 整窗画板, 不裁剪
+            under = Pen(self.W, self.H)
+            th.paint_under(under, self.W / 2, self.H / 2 + dy, t, self.level, self.mode, el)
+            img.alpha_composite(under.img.convert('RGBa').reduce(SS).convert('RGBA'))
         img.alpha_composite(cap, (round((self.W - cap.width) / 2), round(MARGIN - 1 + (self.CH - cap.height) / 2 + dy)))
         return img, a
