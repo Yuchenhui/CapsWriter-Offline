@@ -138,7 +138,7 @@ class Obsidian:
     BARS_W = BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP                  # 105
     W_PROC = 38 + BARS_W + 20                                       # 设计为 14+16+10=40, 与录音态声条起点对齐改 38
     BG, FG, RED, GREEN = '#0a0a0c', '#f4f4f5', '#ff5a4e', '#34c759'
-    SHADOW = dict(dy=12, blur=16, alpha=0.35)                       # CSS: 0 12px 32px rgba(0,0,0,.5); 本地改 .5 -> .35 (用户: 边框/阴影太明显)
+    SHADOW = dict(dy=12, blur=14, alpha=0.6)                        # CSS: 0 12px 32px rgba(0,0,0,.5); 本地改: 调淡到 .35 后用户嫌不明显 -> .6, 模糊 16 -> 14
     # 各声条的基准高度 / 伸缩周期 / 相位 (取自预览页 height / animation-duration / delay; 每根 scaleY 0.22<->1)
     _BASE = (8, 11, 14, 13, 16, 20, 19, 22, 25, 22, 22, 18, 18, 17, 13, 13, 13, 9)
     _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 3
@@ -182,10 +182,11 @@ class Obsidian:
 
     def paint_processing(self, pen: Pen, x0, y0, t, fade):
         cy = y0 + self.H / 2
-        # 星芒: 设计为 16px 缩放 0.8<->1.1 旋转 0<->45° 透明度 0.7<->1; 本地改 (用户: 小号十字阶段显得廉价)
-        # -> 18px 缩放 0.92<->1.05, 旋转 0<->22°, 透明度 0.85<->1, 周期 1.6, 全程饱满只留呼吸感
+        # 星芒: 设计为 16px 缩放 0.8<->1.1 旋转 0<->45° 来回; 本地改 (用户: 小号十字阶段廉价 / 转得太少):
+        # 18px, 每周期 1.6s 同向转 90° (四角星转 90° 与原样重合, 首尾无缝), 先慢后快再慢, 转到一半略放大
+        u = (t % 1.6) / 1.6
         f = wave(t, 1.6)
-        pen.polygon(sparkle(x0 + 14 + 8, cy, 18 * (0.92 + 0.13 * f), 22 * f), fill=rgba('#ffffff', (0.85 + 0.15 * f) * fade))
+        pen.polygon(sparkle(x0 + 14 + 8, cy, 18 * (0.94 + 0.1 * f), 90 * ease_in_out(u)), fill=rgba('#ffffff', (0.88 + 0.12 * f) * fade))
         # 压平的声条: 4px 高, 依次亮起 (透明度 .18 -> 1, 高度 x1.8), 周期 1.2, 每根延迟 0.05
         bx = x0 + 38
         for i in range(self.BAR_N):
