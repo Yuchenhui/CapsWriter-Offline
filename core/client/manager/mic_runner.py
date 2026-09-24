@@ -5,6 +5,24 @@ from ..ui import TipsDisplay
 from config_client import ClientConfig as Config, __version__
 
 
+def _prewarm_ui() -> None:
+    """启动 Tk 界面线程并等它就绪, 预加载录音胶囊用到的模块 (PIL 等)"""
+    import time
+    t0 = time.perf_counter()
+    try:
+        from core.ui.toast_manager import ToastMessageManager
+        m = ToastMessageManager()
+        for _ in range(100):             # 最多等 3 秒
+            if m.is_running:
+                break
+            time.sleep(0.03)
+        import core.ui.toast_recording, core.ui.layered_renderer, core.ui.recording_level   # noqa: F401 胶囊首次创建要用
+        from core.client.ui import recording_toast                                           # noqa: F401
+        logger.info(f'界面预热完成 {(time.perf_counter() - t0) * 1000:.0f}ms (在装键盘钩子之前)')
+    except Exception as e:
+        logger.warning(f'界面预热失败 (不影响使用, 但第一次按键可能卡住钩子): {e}')
+
+
 class MicRunner:
     """
     麦克风模式运行器：负责麦克风模式下的资源初始化、识别处理器循环及生命周期监控。
@@ -38,6 +56,11 @@ class MicRunner:
 
         # 2. UI 提示
         TipsDisplay.show_mic_tips()
+
+        # 2.5 本地改 (2026-09-24 卡键): 界面预热必须在装键盘钩子之前.
+        # 实测启动后第一次按键要在钩子里初始化 Tk 界面线程, 公司机器上耗时 470-506ms, 占着 GIL 让钩子等,
+        # 右 Alt 的按下漏进系统. 提前做掉, 第一次按键就没有重活了.
+        _prewarm_ui()
 
         # 3. 开启运行组件 (音频流、快捷键监听)
         self.app.stream.start()
