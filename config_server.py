@@ -23,6 +23,7 @@ class ServerConfig:
     polish_enabled = True
     # 服务商 (接口 / 模型 / key 来源) 在 core/tools/polish_providers.py, 客户端托盘「二次整理」里选
     polish_timeout = 3.0        # 秒; 超时/断网直接用原文
+    polish_structure_timeout = 8.0   # 结构化整理 (托盘开关) 输出更长, 单独放宽
     polish_max_change = 0.2     # 改动比例超过此值视为改过头, 退回原文
     # 术语表在安装目录 terms.txt (与客户端识别 context 共用, 保存即生效)
 

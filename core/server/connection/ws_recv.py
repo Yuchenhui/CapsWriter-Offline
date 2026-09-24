@@ -118,7 +118,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                     time_submit=time.time(),
                     context=msg.context,
                     language=msg.language,
-                    polish=msg.polish,
+                    polish=msg.polish, structure=msg.structure,
                     window=msg.window,
                 )
                 cache.offset += msg.seg_duration
@@ -149,7 +149,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 time_submit=time.time(),
                 context=msg.context,
                 language=msg.language,
-                polish=msg.polish,
+                polish=msg.polish, structure=msg.structure,
                 window=msg.window,
             )
             queue_in.put(task)

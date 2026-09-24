@@ -151,7 +151,14 @@ class TrayManager:
         """托盘「二次整理」子菜单: 关 / 各服务商, 单选, 下一句起生效, 存 user_state.json"""
         from core.tools.polish_providers import PROVIDERS
         return [('关', self._polish_action(''), lambda: not Config.polish)] + [
-            (p['name'], self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()]
+            (p['name'], self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
+            None, ('结构化整理（编号 / 换行）', self._toggle_structure, lambda: Config.polish_structure)]
+
+    @staticmethod
+    def _toggle_structure():
+        Config.polish_structure = not Config.polish_structure
+        user_state.save()
+        logger.info(f"结构化整理: {'开' if Config.polish_structure else '关'}")
 
     @staticmethod
     def _polish_checked(pid):

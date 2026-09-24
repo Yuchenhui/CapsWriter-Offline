@@ -73,6 +73,8 @@ def adjust_space(text: str) -> str:
     Returns:
         优化后的文本
     """
+    if '\n' in text:   # 本地改: 正则的 \s 会跨行, 把 "INFO\n3." 并成一行 (结构化整理的列表); 逐行处理
+        return '\n'.join(adjust_space(line) for line in text.split('\n'))
     for _ in range(3):
         new_text = _EN_IN_ZH_PATTERN.sub(_replacer, text)
         if new_text == text:

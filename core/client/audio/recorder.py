@@ -170,7 +170,7 @@ class AudioRecorder:
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
-                        polish=Config.polish,
+                        polish=Config.polish, structure=Config.polish_structure,
                         window=getattr(self, '_window', ''),
                         language=Config.language,
                     )
@@ -224,7 +224,7 @@ class AudioRecorder:
                             seg_duration=Config.mic_seg_duration,
                             seg_overlap=Config.mic_seg_overlap,
                             context=load_terms() or Config.context,
-                            polish=Config.polish,
+                            polish=Config.polish, structure=Config.polish_structure,
                             window=getattr(self, '_window', ''),
                             language=Config.language,
                         )
@@ -249,7 +249,7 @@ class AudioRecorder:
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
-                        polish=Config.polish,
+                        polish=Config.polish, structure=Config.polish_structure,
                         window=getattr(self, '_window', ''),
                         language=Config.language,
                     )

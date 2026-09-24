@@ -41,6 +41,7 @@ class Task:
     context: str = ''
     language: str = 'auto'
     window: str = ''        # 录音时前台窗口, 二次整理上下文
+    structure: bool = False  # 结构化整理
     polish: object = True   # 服务商 id 或旧版 bool, 见 core/tools/polish_providers.resolve
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'

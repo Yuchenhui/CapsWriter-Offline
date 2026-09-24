@@ -70,6 +70,7 @@ class ClientConfig:
     hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
     polish       = ''           # 二次整理服务商: '' = 关; 'deepseek' / 'minimax' (见 core/tools/polish_providers.py). 托盘「二次整理」改过后以 user_state.json 为准
+    polish_structure = False    # 结构化整理: 多件事排成编号列表并换行 (托盘「二次整理」里勾选; 需要先选服务商)
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键

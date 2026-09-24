@@ -95,6 +95,39 @@ _SYSTEM = """<任务>
 </输出要求>"""
 
 
+# 结构化整理 (用户 2026-09-24 要求, 托盘开关): 在校对之上允许重排 / 编号 / 换行. 追加在 _SYSTEM 之后, 后面的规则优先.
+_STRUCTURE = """
+
+<结构化整理>
+用户打开了"结构化整理"。先按上面的规则校对，再把内容整理成结构清晰、方便阅读的文字。本节与 <不许做的> 第一条冲突时以本节为准：
+1. 说了多件事、多个要点或多个步骤时，整理成编号列表 1. 2. 3.，每项一行；有总述的话（如"我说几件事"）改成一句引导语放在列表前，以冒号结尾。
+2. 同一件事分散在几处说的，合并到同一项；步骤按先后排序，其余保持原来的顺序。每项开头可以删掉口语连接词（然后、还有、另外、再就是、对了）。
+3. 某一项下面还有细节的，用缩进的 "- " 子项列出。
+4. 只说了一件事、没有可拆的要点时不编号，只做校对；内容长且话题转换明显时可以分段（段之间空一行）。
+5. 每项保留原话的信息和关键用词：不添加原话没有的信息，不总结，不省略任何要点，不改成书面腔。
+</结构化整理>
+
+<结构化示例>
+输入：今天下午要做几件事啊，先把那个巡检报告推上去，然后呢 CapsWriter 的日志级别改回 INFO，哦还有巡检报告推之前要先跑一遍脚本，对了明天记得轮换 Groq 的 key
+输出：今天下午要做几件事：
+1. 先跑一遍巡检脚本，再把巡检报告推上去
+2. CapsWriter 的日志级别改回 INFO
+3. 明天轮换 Groq 的 key
+</结构化示例>"""
+
+
+def _coverage(text: str, out: str) -> tuple:
+    """结构化后的保险 (改动比例对重排无意义): ① 原文实词字符有多少还在 ② 输出凭空多出多少汉字.
+    按字符多重集比, 不看顺序; 中文数字/标点/填充词/连接词不计 (它们本就该变或该删)."""
+    from collections import Counter
+    skip = _CN_NUM | set('嗯呃额啊哦呢吧嘛然后还有另外再就是对了那个')
+    a = Counter(c for c in text if _CJK.match(c) and c not in skip)
+    b = Counter(c for c in out if _CJK.match(c))
+    kept = sum(min(n, b[c]) for c, n in a.items()) / max(sum(a.values()), 1)
+    added = sum(max(0, n - a.get(c, 0)) for c, n in b.items() if c not in skip) / max(sum(a.values()), 1)
+    return kept, added
+
+
 _TERMINALS = ('windowsterminal.exe', 'cmd.exe', 'powershell.exe', 'pwsh.exe', 'conhost.exe', 'wezterm-gui.exe',
               'alacritty.exe', 'mintty.exe', 'code.exe', 'cursor.exe', 'windsurf.exe')
 
@@ -176,18 +209,19 @@ def _change_ratio(text: str, out: str, terms: str) -> tuple:
     return changed / max(len(a), 1), deleted / max(len(a), 1)
 
 
-def _call_api(text: str, pid: str, window: str = '') -> str:
+def _call_api(text: str, pid: str, window: str = '', structure: bool = False) -> str:
     prov = polish_providers.PROVIDERS[pid]
     key = polish_providers.api_key(pid)
+    system = _SYSTEM.format(terms=load_terms() or getattr(Config, 'polish_terms', '') or '无') + (_STRUCTURE if structure else '')
     body = {
         'model': prov['model'],
         'messages': [
-            {'role': 'system', 'content': _SYSTEM.format(terms=load_terms() or getattr(Config, 'polish_terms', '') or '无')},
+            {'role': 'system', 'content': system},
             {'role': 'user', 'content': f'<识别结果>{text}</识别结果>\n<拼音>{_pinyin(text)}</拼音>'
                                         + (f'\n<当前窗口>{window}</当前窗口>' if window else '')
-                                        + ('\n<换行>允许</换行>' if multiline_ok(window) else '\n<换行>禁止：列举写在同一行</换行>')},
+                                        + ('\n<换行>允许</换行>' if structure or multiline_ok(window) else '\n<换行>禁止：列举写在同一行</换行>')},
         ],
-        'max_tokens': len(text) * 2 + 64,
+        'max_tokens': len(text) * (3 if structure else 2) + 64,
         'temperature': 0,
         'thinking': {'type': 'disabled'},   # 思考开着要多等几秒, 这个任务用不着
     }
@@ -201,19 +235,32 @@ def _call_api(text: str, pid: str, window: str = '') -> str:
     return re.sub(r'</?识别结果>', '', out).strip()   # 偶尔会把标签一起抄回来   # 有的服务商关了思考仍可能夹带思考块
 
 
-def polish(text: str, choice=True, window: str = '') -> str:
-    """choice: 客户端选的服务商 id (兼容旧 bool). 未启用 / 空文本 / 任何失败都原样返回."""
+def polish(text: str, choice=True, window: str = '', structure: bool = False) -> str:
+    """choice: 客户端选的服务商 id (兼容旧 bool). 未启用 / 空文本 / 任何失败都原样返回.
+    structure: 结构化整理 (允许重排/编号/换行), 保险换成 _coverage."""
     pid = polish_providers.resolve(choice)
     if not pid or not getattr(Config, 'polish_enabled', False) or not text.strip():
         return text
     t0 = time.time()
+    # 结构化输出更长, 放宽总时限
+    limit = max(Config.polish_timeout, getattr(Config, 'polish_structure_timeout', 8.0)) if structure else Config.polish_timeout
     try:
         # 硬上限: urlopen 的 timeout 是每次 socket 操作各自 3s, 连接+读可能叠加超过; 这里按总时长截断
-        out = _POOL.submit(_call_api, text, pid, window).result(timeout=Config.polish_timeout)
+        out = _POOL.submit(_call_api, text, pid, window, structure).result(timeout=limit)
     except Exception as e:
         logger.warning(f'二次整理 [{pid}] 失败, 用原文 ({time.time() - t0:.2f}s): {e}')
         return text
     out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
+    if structure:
+        kept, added = _coverage(text, out)
+        dt = time.time() - t0
+        if not out or kept < 0.8 or added > 0.15:
+            logger.info(f'二次整理 [{pid}] 结构化 {dt:.2f}s, 保留 {kept:.0%} / 新增 {added:.0%} 超限, 用原文')
+            logger.debug(f'结构化放弃: {text} -X-> {out!r}')
+            return text
+        logger.info(f'二次整理 [{pid}] 结构化 {dt:.2f}s, 保留 {kept:.0%} / 新增 {added:.0%}' + (', 已分行' if '\n' in out else ''))
+        logger.debug(f'结构化: {text} --> {out!r}')
+        return out
     if '\n' not in text and '\n' in out and not multiline_ok(window):   # 终端里多出换行 -> 贴进去可能逐行执行命令
         logger.debug(f'二次整理放弃 (输出多出换行): {text} -X-> {out!r}')
         return text
