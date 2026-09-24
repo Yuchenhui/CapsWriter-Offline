@@ -138,7 +138,11 @@ class Obsidian:
     BARS_W = BAR_N * BAR_W + (BAR_N - 1) * BAR_GAP                  # 105
     W_PROC = 38 + BARS_W + 20                                       # 设计为 14+16+10=40, 与录音态声条起点对齐改 38
     BG, FG, RED, GREEN = '#0a0a0c', '#f4f4f5', '#ff5a4e', '#34c759'
-    SHADOW = dict(dy=12, blur=14, alpha=0.6)                        # CSS: 0 12px 32px rgba(0,0,0,.5); 本地改: 调淡到 .35 后用户嫌不明显 -> .6, 模糊 16 -> 14
+    # CSS: 0 12px 32px rgba(0,0,0,.5); 本地改: 调淡到 .35 后用户嫌不明显 -> .6, 模糊 16 -> 14
+    SHADOWS = ((0, 12, 14, (0, 0, 0, 153)),)                        # (dx, dy, 模糊 sigma, RGBA), 可多层 (外发光 = dy 0)
+
+    def shadows(self, mode):
+        return self.SHADOWS
     # 各声条的基准高度 / 伸缩周期 / 相位 (取自预览页 height / animation-duration / delay; 每根 scaleY 0.22<->1)
     _BASE = (8, 11, 14, 13, 16, 20, 19, 22, 25, 22, 22, 18, 18, 17, 13, 13, 13, 9)
     _DUR = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3) * 3
@@ -154,7 +158,7 @@ class Obsidian:
     def width(self, mode: str) -> float:
         return {'recording': self.W_REC, 'processing': self.W_PROC}.get(mode, self.H)
 
-    def shell(self, pen: Pen, x0, y0, w):
+    def shell(self, pen: Pen, x0, y0, w, mode='recording'):
         h = self.H
         pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=(255, 255, 255, 13), width=1)   # 描边 白 9% -> 5% (用户: 太明显)
         inset_top(pen, x0 + 1, y0 + 1, w - 2, h - 2, 0.04)      # 边框内侧的顶部内高光 6% -> 4%
@@ -204,7 +208,107 @@ class Obsidian:
         pen.polyline(pts, rgba(self.BG, a), 2 * q)
 
 
-THEMES = {'obsidian': Obsidian}
+# ---- 主题 B: 极光 Aurora ---------------------------------------------------
+def _hgrad(size, x_from, x_to, stops):
+    """横向渐变 RGBA 图 (size 为 SS 像素). stops = ((位置 0-1, RGBA), ...), 区间外取两端色"""
+    w, h = size
+    row = Image.new('RGBA', (w, 1))
+    px = row.load()
+    for x in range(w):
+        u = _clamp((x - x_from) / max(1, x_to - x_from))
+        for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+            if u <= p1:
+                k = 0 if p1 == p0 else (u - p0) / (p1 - p0)
+                px[x, 0] = tuple(round(a + (b - a) * k) for a, b in zip(c0, c1))
+                break
+    return row.resize((w, h))
+
+
+class Aurora:
+    name = '极光'
+    H = 44
+    W_REC = W_PROC = MAX_W = 200
+    AREA_W, AREA_H = 160, 28            # 声线区 (左右各 20% 渐隐)
+    BG, CYAN, VIOLET = '#0b0d12', '#5ee6c8', '#9b8cff'
+
+    def __init__(self):
+        self._cache = {}
+
+    def shadows(self, mode):
+        dark = (0, 12, 16, (0, 0, 0, 128))                            # 0 12px 32px rgba(0,0,0,.5)
+        if mode == 'recording':
+            return ((0, 0, 12, rgba(self.CYAN, 0.10)), dark)          # + 0 0 24px 青 10% 外发光
+        if mode == 'done':
+            return ((0, 0, 10, rgba(self.CYAN, 0.18)), dark)          # + 0 0 20px 青 18%
+        return (dark,)
+
+    def width(self, mode: str) -> float:
+        return self.H if mode == 'done' else self.W_REC
+
+    def shell(self, pen: Pen, x0, y0, w, mode='recording'):
+        h = self.H
+        border = rgba(self.CYAN, 0.35) if mode == 'done' else rgba(self.VIOLET, 0.22)
+        pen.rrect(x0, y0, x0 + w, y0 + h, h / 2, fill=rgba(self.BG), outline=border, width=1)
+
+    # 声线区左右 20% 渐隐的蒙版 + 青->紫渐变色层, 画板大小固定, 按画板尺寸缓存
+    def _fade_and_grad(self, pen: Pen, ax):
+        key = (pen.img.size, round(ax * SS))
+        hit = self._cache.get(key)
+        if hit is None:
+            x0, x1 = pen._x(ax), pen._x(ax + self.AREA_W)
+            fade = _hgrad(pen.img.size, x0, x1, ((0, (0, 0, 0, 0)), (0.2, (0, 0, 0, 255)), (0.8, (0, 0, 0, 255)), (1, (0, 0, 0, 0))))
+            grad = _hgrad(pen.img.size, x0, x1, ((0, rgba(self.CYAN)), (1, rgba(self.VIOLET))))
+            violet = Image.new('RGBA', pen.img.size, rgba(self.VIOLET))
+            track = Image.new('L', pen.img.size, 0)
+            cy = pen._y(1 + self.H / 2)
+            ImageDraw.Draw(track).rounded_rectangle((x0, cy - SS, x1, cy + SS), radius=SS, fill=255)
+            band = _hgrad((round(60 * SS), 1), 0, round(60 * SS),
+                          ((0, rgba(self.CYAN, 0)), (0.35, rgba(self.CYAN)), (0.7, rgba(self.VIOLET)), (1, rgba(self.VIOLET, 0))))
+            hit = self._cache[key] = (fade.getchannel('A'), grad, violet, ImageChops.multiply(track, fade.getchannel('A')), band)
+        return hit
+
+    def _stroke(self, pen: Pen, pts, width, color_img, alpha, fade):
+        """折线画成蒙版, 乘渐隐与透明度, 用 color_img 上色后叠到画板 (整条线一次成形, 接缝不叠色)"""
+        m = Image.new('L', pen.img.size, 0)
+        ImageDraw.Draw(m).line([(pen._x(x), pen._y(y)) for x, y in pts], fill=round(255 * _clamp(alpha)),
+                               width=max(1, round(width * SS)), joint='curve')
+        layer = color_img.copy()
+        layer.putalpha(ImageChops.multiply(m, fade))
+        pen.img.alpha_composite(layer)
+
+    def paint_recording(self, pen: Pen, x0, y0, t, level, fade, flatten=0.0):
+        ax, cy = x0 + (self.MAX_W - self.AREA_W) / 2, y0 + self.H / 2
+        vis, grad, violet, _, _ = self._fade_and_grad(pen, ax)
+        amp = (0.18 + 0.82 * level) * (1 - flatten)                   # 设计里 0.45-1 呼吸, 这里接真实音量
+        # 副线: 振幅 7, 波长 64, 线宽 1.5, 紫 45%, 每 1.5s 左移一个波长
+        p2 = [(ax + x, cy + 7 * amp * math.sin(2 * math.pi * (x + 12 + 64 * t / 1.5) / 64)) for x in range(0, self.AREA_W + 1, 2)]
+        self._stroke(pen, p2, 1.5, violet, 0.45 * fade, vis)
+        # 主线: 振幅 10, 波长 40, 线宽 2.2, 青->紫渐变, 每 0.9s 左移一个波长
+        p1 = [(ax + x, cy + 10 * amp * math.sin(2 * math.pi * (x + 40 * t / 0.9) / 40)) for x in range(0, self.AREA_W + 1, 2)]
+        self._stroke(pen, p1, 2.2, grad, fade, vis)
+
+    def paint_processing(self, pen: Pen, x0, y0, t, fade):
+        ax, cy = x0 + (self.MAX_W - self.AREA_W) / 2, y0 + self.H / 2
+        _, _, _, track, band_row = self._fade_and_grad(pen, ax)     # track = 轨道形状 x 两端渐隐
+        # 轨道 160x2 白 10%
+        layer = Image.new('RGBA', pen.img.size, (255, 255, 255, 0))
+        layer.putalpha(track.point(lambda v: v * 26 * fade // 255))
+        pen.img.alpha_composite(layer)
+        # 光带 60px (透明->青->紫->透明) 从 -60 扫到 160, 周期 1.3, cubic-bezier(.45,0,.55,1) ~ 缓入缓出; 裁在轨道内
+        bx = ax - 60 + 220 * ease_in_out((t % 1.3) / 1.3)
+        band = Image.new('RGBA', pen.img.size, (0, 0, 0, 0))
+        band.paste(band_row.resize((band_row.width, pen.img.height)), (round(pen._x(bx)), 0))
+        band.putalpha(ImageChops.multiply(band.getchannel('A'), track.point(lambda v: v * fade)))
+        pen.img.alpha_composite(band)
+
+    def paint_done(self, pen: Pen, cx, cy, k):
+        s, a = pop(k)
+        q = 18 / 18 * s                                              # check 18x18 画布, 显示 18px
+        pts = [(cx + (x - 9) * q, cy + (y - 9) * q) for x, y in ((4, 9.4), (7.2, 12.5), (14, 5.8))]
+        pen.polyline(pts, rgba(self.CYAN, a), 2.2 * q)
+
+
+THEMES = {'obsidian': Obsidian, 'aurora': Aurora}
 
 
 def get(name: str):
@@ -243,28 +347,29 @@ class Capsule:
     def finished(self, now: float) -> bool:
         return self.mode == 'done' and now - self.since >= SHRINK + POP + HOLD + FADE
 
-    def _shadow_img(self, w: int):
-        """阴影层 (整窗 1 倍), 按胶囊宽度缓存 —— 缩成圆的过渡里宽度在变"""
-        img = self._shadow.get(w)
+    def _shadow_img(self, w: int, mode: str):
+        """阴影 + 外发光层 (整窗 1 倍), 按 (胶囊宽度, 模式) 缓存 —— 缩成圆的过渡里宽度在变, 各模式发光不同"""
+        img = self._shadow.get((w, mode))
         if img is None:
-            sh = self.th.SHADOW
             img = Image.new('RGBA', (self.W, self.H), (0, 0, 0, 0))
             x0 = (self.W - w) / 2
-            ImageDraw.Draw(img).rounded_rectangle((x0, MARGIN + sh['dy'], x0 + w, MARGIN + sh['dy'] + self.th.H),
-                                                  radius=self.th.H / 2, fill=(0, 0, 0, round(255 * sh['alpha'])))
-            img = img.filter(ImageFilter.GaussianBlur(sh['blur']))
-            self._shadow[w] = img
+            for dx, dy, blur, color in self.th.shadows(mode):
+                layer = Image.new('RGBA', (self.W, self.H), color[:3] + (0,))
+                ImageDraw.Draw(layer).rounded_rectangle((x0 + dx, MARGIN + dy, x0 + dx + w, MARGIN + dy + self.th.H),
+                                                        radius=self.th.H / 2, fill=color)
+                img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur)))
+            self._shadow[(w, mode)] = img
         return img
 
-    def _shell(self, w):
-        key = round(w * 4)
+    def _shell(self, w, mode):
+        key = (round(w * 4), mode)
         hit = self._shells.get(key)
         if hit is None:
             if len(self._shells) > 64:     # 过渡里每帧宽度不同, 防无限增长
                 self._shells.clear()
             x0 = (self.CW - w) / 2
             pen, mask = Pen(self.CW, self.CH), Pen(self.CW, self.CH)
-            self.th.shell(pen, x0, 1, w)
+            self.th.shell(pen, x0, 1, w, mode)
             mask.rrect(x0, 1, x0 + w, 1 + self.th.H, self.th.H / 2, fill=(255, 255, 255, 255))
             hit = self._shells[key] = (pen.img.convert('RGBa').reduce(SS).convert('RGBA'),
                                        mask.img.getchannel('A').reduce(SS))
@@ -311,13 +416,13 @@ class Capsule:
                 th.paint_done(inner, self.CW / 2, 1 + th.H / 2, (el - SHRINK) / POP)
 
         # 内容 (4 倍画, 预乘后缩小) 按外壳蒙版裁剪 -> 叠到缓存的外壳上
-        shell, mask = self._shell(w)
+        shell, mask = self._shell(w, self.mode)
         content = inner.img.convert('RGBa').reduce(SS).convert('RGBA')
         content.putalpha(ImageChops.multiply(content.getchannel('A'), mask))
         cap = shell.copy()
         cap.alpha_composite(content)
         if abs(s - 1) > 1e-3:          # 出现/消失时整体缩放 (只有前 0.18s 和最后 0.2s)
             cap = cap.resize((max(1, round(self.CW * s)), max(1, round(self.CH * s))), Image.LANCZOS)
-        img = self._shadow_img(max(int(th.H), round(w))).copy()
+        img = self._shadow_img(max(int(th.H), round(w)), self.mode).copy()
         img.alpha_composite(cap, (round((self.W - cap.width) / 2), round(MARGIN - 1 + (self.CH - cap.height) / 2 + dy)))
         return img, a
