@@ -257,6 +257,9 @@ def replace(match):
     elif _WAN_TERM.search(original):
         final = original
 
+    elif match.group(3) == '两' and (string[match.end(3):match.end(3) + 1] or '_') not in '百千万亿':   # 本地改 (第 3 组是数字部分, original 含量词): 单独的"两"是口语量词 (两天/两个/两次), 不写成 2; "两百" 等仍转
+        final = original
+
     elif (_UNIT_CHARS.issuperset(original)
           and len(original) >= 2
           and not any(c in _DIGIT_CHARS for c in original)):
