@@ -112,11 +112,18 @@ class ShortcutManager:
 
             task = self.tasks[key_name]
 
+            # 本地改 (2026-09-24 卡键): 别的程序注入的松开 (如桌面 Fix Stuck Keys), 不在录音时放行,
+            # 否则系统里已卡住的键永远收不到松开
+            if msg in KEY_UP_MESSAGES and (data.flags & 0x10) and not task.is_recording:
+                return True
+
             # 处理按键事件
             if msg in KEY_DOWN_MESSAGES:
                 self._event_handler.handle_keydown(key_name, task)
             elif msg in KEY_UP_MESSAGES:
                 self._event_handler.handle_keyup(key_name, task)
+                if task.shortcut.suppress:
+                    self._pool.submit(self._heal_if_stuck, key_name, data.vkCode, data.scanCode, data.flags)
 
             # 阻塞事件
             if task.shortcut.suppress and self.keyboard_listener:
@@ -140,6 +147,18 @@ class ShortcutManager:
                     key_trace.hook(msg, data, outcome, (time.perf_counter() - t0) * 1000)
 
         return traced_filter
+
+    @staticmethod
+    def _heal_if_stuck(key_name, vk, scan, flags) -> None:
+        """本地改 (2026-09-24 卡键): 刚拦下的松开之后, 系统若仍认为该键按着, 说明按下曾漏进系统
+        (实测: 麦克风闲置后重开 467ms 卡住钩子, 按下漏过去) -> 补发一次松开, 让系统配对. 在线程池里跑, 不占钩子."""
+        import ctypes
+        time.sleep(0.05)
+        u32 = ctypes.windll.user32
+        if not (u32.GetAsyncKeyState(vk) & 0x8000):
+            return
+        u32.keybd_event(vk, scan, 0x0002 | (0x0001 if flags & 0x01 else 0), 0)   # KEYUP (+EXTENDED 同原事件)
+        logger.warning(f'[{key_name}] 自愈: 松开已拦下但系统仍认为按着 (按下曾漏进系统), 已补发松开')
 
     def create_mouse_filter(self):
         """创建鼠标事件过滤器"""
