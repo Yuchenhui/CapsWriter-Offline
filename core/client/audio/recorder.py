@@ -211,6 +211,10 @@ class AudioRecorder:
                         
                         self._duration += len(data) / 48000
                         if Config.save_audio and self._file_manager:
+                            # 本地改: F6 攒 10s 再发, 短句从没走到"创建音频文件"那步 -> 这里补建, 否则录音全丢 ("文件未打开")
+                            if file_path is None:
+                                file_path, _ = self._file_manager.create(data.shape[1], self._start_time)
+                                self.state.register_audio_file(self.task_id, file_path)
                             self._file_manager.write(data)
 
                         message = AudioMessage(
