@@ -8,9 +8,9 @@ Tk 画布没有抗锯齿, 抠图色透明只能整像素透/不透, 整窗 alpha
 import ctypes
 from ctypes import wintypes
 
-GLASS_TOP = (44, 50, 64, 200)      # 玻璃底顶部颜色 (RGBA), 自上而下渐变
-GLASS_BOTTOM = (20, 24, 32, 176)   # 玻璃底底部颜色 (alpha 越小越透)
-GLASS_RIM = (255, 255, 255, 46)    # 外沿细亮边
+GLASS_TOP = (44, 50, 64, 235)      # 玻璃底顶部颜色 (RGBA), 自上而下渐变 (本地改 2026-09-24: alpha 200 -> 235, 深色背景上太透不明显)
+GLASS_BOTTOM = (20, 24, 32, 225)   # 玻璃底底部颜色 (alpha 越小越透; 176 -> 225)
+GLASS_RIM = (255, 255, 255, 80)    # 外沿细亮边 (46 -> 80, 深色背景上勾出轮廓)
 SHADOW = (0, 0, 0, 120)            # 投影颜色
 SHADOW_BLUR = 7                    # 投影模糊半径 (像素)
 SHADOW_DY = 3                      # 投影下移 (像素)

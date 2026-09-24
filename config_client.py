@@ -50,9 +50,7 @@ class ClientConfig:
     # 录音胶囊 (移植自 rockbenben/CapsWriter-Offline 09eb846/d5380b6/ca8b1ca)
     show_recording_toast = True  # 录音时屏幕底部显示深色胶囊+声波条，松开后「正在转文字」，出字后消失
     recording_toast_margin = 16  # 胶囊底边距任务栏像素
-    recording_toast_opacity = 0.75  # 不透明度 0.2~1.0 (本地改: 原 0.88, 配合仿玻璃)
-    recording_toast_sensitivity = 12.0  # 波形灵敏度，不够跳调大、太满调小
-    recording_toast_noise_gate = 0.006  # 噪声门，没说话也在动就调大 (如 0.02); 本地改: 0.010->0.006, 离麦远时小声也能过门
+    recording_toast_opacity = 0.9  # 不透明度 0.2~1.0 (本地改: 0.88 -> 0.75 仿玻璃 -> 0.9 用户嫌不明显); 波形灵敏度按底噪自适应, 见 core/ui/toast_recording.py
     
     context = ''                # 兜底; 实际取安装目录 terms.txt (只对 Qwen3-ASR / Fun-ASR-Nano 生效)
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）

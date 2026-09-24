@@ -47,32 +47,6 @@ def _bottom_margin() -> int:
     return _BOTTOM_MARGIN
 
 
-def _level_gain() -> float:
-    """波形灵敏度（RMS→满幅增益），读 config，夹到 [1, 80]。"""
-    val = _LEVEL_GAIN
-    try:
-        from config_client import ClientConfig
-        m = getattr(ClientConfig, 'recording_toast_sensitivity', None)
-        if isinstance(m, (int, float)):
-            val = float(m)
-    except Exception:
-        pass
-    return max(1.0, min(80.0, val))
-
-
-def _level_gate() -> float:
-    """噪声门阈值（RMS），读 config，夹到 [0, 0.2]。"""
-    val = _LEVEL_GATE
-    try:
-        from config_client import ClientConfig
-        m = getattr(ClientConfig, 'recording_toast_noise_gate', None)
-        if isinstance(m, (int, float)):
-            val = float(m)
-    except Exception:
-        pass
-    return max(0.0, min(0.2, val))
-
-
 def _read_mic_level() -> tuple:
     """读取实时麦克风电平 (level, fresh)；不可用时返回 (0.0, False) 以回退合成动画。"""
     try:
@@ -144,11 +118,11 @@ _TEXT_FG = '#f5f5f7'
 _ALPHA = 0.88              # 整体通透度（越小越透，文字仍需可读）
 
 # 签名元素：密集声条频谱（白→青渐变），中间高两侧低，带说话般起伏 + 横向流动
-_WAVE_W = 84               # 声条区域宽度（像素）
-_WAVE_AMP = 11             # 声条半振幅（像素，满幅约 2×）
+_WAVE_W = 96               # 声条区域宽度（像素） 本地改 2026-09-24: 84 -> 96, 与下面三项一起让声条更显眼
+_WAVE_AMP = 15             # 声条半振幅（像素，满幅约 2×） 11 -> 15
 _WAVE_SPEED = 0.17         # 相位推进速度（每帧）
-_BAR_COUNT = 15            # 声条数量
-_BAR_W = 3                 # 单条宽度（像素，圆头）
+_BAR_COUNT = 16            # 声条数量 15 -> 16
+_BAR_W = 4                 # 单条宽度（像素，圆头） 3 -> 4
 _BAR_MIN_H = 2             # 静止时的最小半高，避免消失
 # 本地改: 动态流动配色 —— 循环色带 (首尾相接), 每根声条按位置取色, 整条色带随时间向右流动
 _WAVE_PALETTE = ('#35e0d0', '#4aa8ff', '#9b7bff', '#ff7eb6')   # 青 -> 蓝 -> 紫 -> 粉 -> (回到青)
@@ -157,13 +131,18 @@ _WAVE_FLOW = 0.006         # 色带每帧流动量 (~25fps 下约 7 秒转一圈
 _DOT_MIN = 2.5            # 转写中: 暗点直径 (像素)
 _DOT_MAX = 6.0            # 转写中: 光点处直径
 _DOT_DIM = '#4a5163'      # 转写中: 暗点颜色
-_DOT_SPEED = 0.45         # 光点移动速度 (点/帧, ~25fps 下约 1.6 秒扫一遍)
+_DOT_SPEED = 0.9          # 光点移动速度 (点/帧, ~25fps 下约 0.8 秒扫一遍; 2026-09-24 用户嫌慢, 0.45 -> 0.9)
 _DOT_TAIL = 2.2           # 光点光晕宽度 (点数, 越大拖尾越长)
 
 # 真实电平驱动（拿不到实时电平时回退到合成动画）
-_LEVEL_GATE = 0.010        # 噪声门：RMS 低于此值视为静音（减掉底噪，避免没说话也在动）
-_LEVEL_GAIN = 12.0         # 过门后 RMS→满幅的增益（越大越灵敏，按麦克风口味调）
-_LEVEL_GAMMA = 0.6         # 感知曲线（<1 把小音量抬起来，正常说话就能填到大半）
+# 本地改 2026-09-24: 固定噪声门 + 线性增益 -> 按"高出底噪多少 dB"映射. 实测各句说话 -44 ~ -8 dBFS、底噪 -82 ~ -36 dBFS,
+# 固定门限 (-44 dBFS) 下小声几乎不动, 嘈杂处又会空跳. 底噪跟踪: 低了立刻跟下来, 高了每帧只涨 0.02 dB (说话不会被当成底噪)
+_FLOOR_INIT_DB = -60.0     # 首次录音前的底噪假设; 之后沿用上一次录音学到的值
+_FLOOR_RISE_DB = 0.02      # 底噪每帧最多上涨 (dB), ~25fps 下 0.5 dB/秒
+_DB_START = 6.0            # 高出底噪这么多 dB 才开始动
+_DB_RANGE = 26.0           # 再高出这么多 dB 到满幅
+_LEVEL_GAMMA = 0.7         # 感知曲线（<1 把小音量抬起来）
+_floor_db = _FLOOR_INIT_DB  # 跨录音保留
 _LEVEL_ATTACK = 0.6        # 变响时的跟随速度（大=更跟手）
 _LEVEL_DECAY = 0.18        # 变弱时的回落速度（小=更平滑的余韵）
 _LEVEL_FLOOR = 0.06        # 静音时的基线高度占比（越小越贴平）
@@ -218,9 +197,6 @@ class ToastWindowRecording:
         self._target_alpha = _target_alpha()   # 淡入目标不透明度（读配置）
         self._after_id: Optional[str] = None
         self._level = 0.0              # 平滑后的真实电平（0~1）
-        self._gain = _level_gain()     # 灵敏度（读配置，创建时定）
-        self._peak = 0.0               # 本地改: 自动增益用的近期峰值 (缓慢衰减)
-        self._gate = _level_gate()     # 噪声门（读配置，创建时定）
         # 波形相位起点随机，避免每次录音从同一形状开始
         self._phase0 = random.uniform(0, 6.283)
         # 状态机：listening（聆听）/ processing（转写中）
@@ -392,14 +368,11 @@ class ToastWindowRecording:
             # 拿不到新鲜电平时回退到合成的“说话般”起伏
             raw, fresh = _read_mic_level()
             if fresh:
-                # 噪声门：减掉底噪，静音时归零，避免没说话也在动
-                eff = raw - self._gate
-                eff = eff if eff > 0.0 else 0.0
-                # 本地改: 自动增益 —— 离麦克风远时电平小, 固定增益下波纹几乎不动.
-                # 按近期峰值归一化 (峰值每帧衰减 3%, 约 1 秒半衰), 增益最多放大到配置值的 6 倍, 免得放大底噪
-                self._peak = max(eff, self._peak * 0.97)
-                gain = min(max(self._gain, 0.8 / self._peak), self._gain * 6) if self._peak > 0 else self._gain
-                target = min(1.0, eff * gain) ** _LEVEL_GAMMA
+                global _floor_db
+                db = 20 * math.log10(max(raw, 1e-6))
+                # 往下平滑跟随, 且不低于 -75 dB (麦克风刚开时可能送全零块, 否则底噪掉到 -120 后一直满幅)
+                _floor_db = max(-75.0, _floor_db + (db - _floor_db) * 0.3) if db < _floor_db else _floor_db + _FLOOR_RISE_DB
+                target = min(1.0, max(0.0, (db - _floor_db - _DB_START) / _DB_RANGE)) ** _LEVEL_GAMMA
                 k = _LEVEL_ATTACK if target > self._level else _LEVEL_DECAY
                 self._level += (target - self._level) * k
                 speech = _LEVEL_FLOOR + (1.0 - _LEVEL_FLOOR) * self._level
