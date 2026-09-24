@@ -157,10 +157,11 @@ class LayeredRenderer:
         return tuple(round(a + (b - a) * t) for a, b in zip(rgb, to))
 
     def _cylinder(self, d, cx, top, bottom, r, c):
-        """圆柱感: 压暗的外圈 -> 原色主体 (略偏左) -> 左侧窄高光, 光从左上来. 圆点 (top == bottom) 即成小球"""
-        for dx, k, col in ((0.0, 1.0, self._mix(c, (0, 0, 0), 0.35)),
-                           (-0.12, 0.72, self._mix(c, (0, 0, 0), 0.0)),
-                           (-0.30, 0.30, self._mix(c, (255, 255, 255), 0.55))):
+        """圆柱感: 两侧对称压暗的外圈 -> 居中原色主体 -> 略偏左的窄高光. 圆点 (top == bottom) 即成小球.
+        2026-09-24 改: 原主体/高光都偏左, 右侧露出一道暗边, 浅色主题下像柱子后面有阴影"""
+        for dx, k, col in ((0.0, 1.0, self._mix(c, (0, 0, 0), 0.22)),
+                           (0.0, 0.66, self._mix(c, (0, 0, 0), 0.0)),
+                           (-0.08, 0.26, self._mix(c, (255, 255, 255), 0.5))):
             rr = r * k
             x = cx + dx * r * 2
             d.rounded_rectangle((x - rr, top - rr, x + rr, bottom + rr), radius=rr, fill=col)
