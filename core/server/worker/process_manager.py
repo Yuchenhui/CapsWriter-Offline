@@ -8,6 +8,8 @@ from __future__ import annotations
 import sys
 import os
 import queue
+import threading
+import time
 from multiprocessing import Process, Manager
 from typing import TYPE_CHECKING
 from ..state import console
@@ -68,6 +70,10 @@ class ProcessManager:
 
         # 4. 等待模型加载完成 (轮询方式)
         self._wait_for_models()
+
+        # 5. 运行中识别进程退出 (GPU 丢失 / 底层崩溃) -> 服务端整体退出, 端口空出来, 客户端据此重新拉起
+        if self.is_alive:
+            threading.Thread(target=self._watch_worker, daemon=True, name='worker-watch').start()
         
         return self._process
 
@@ -92,6 +98,16 @@ class ProcessManager:
         logger.info("模型加载完成，ASR 服务就绪")
         console.rule('[green3]开始服务')
         console.line()
+
+    def _watch_worker(self):
+        proc = self._process
+        proc.join()
+        if not self.is_alive:   # 主动 stop 引起的退出
+            return
+        logger.error(f"识别子进程运行中退出 (ExitCode: {proc.exitcode}), 服务端退出, 等待客户端重新拉起")
+        self.app.loop.call_soon_threadsafe(self.app.stop)
+        time.sleep(10)
+        os._exit(3)   # stop 卡住的兜底: 进程不退, 客户端看到进程还活着就不会重新拉起
 
     def _handle_unexpected_exit(self):
         """处理子进程加载模型时的意外退出"""

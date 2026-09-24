@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from config_client import ClientConfig as Config
@@ -20,9 +21,18 @@ logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 c
 
 CREATE_NO_WINDOW = 0x08000000
 _CHECK_INTERVAL = 5
+_MAX_SPAWNS = 3          # 窗口内最多拉起次数 (含首次启动)
+_SPAWN_WINDOW = 600      # 秒; 超限即放弃, 等用户托盘「重启」
 
 _proc = None
 _stop = threading.Event()
+_spawn_times: list[float] = []
+
+
+def _may_spawn(now: float) -> bool:
+    """重试上限: _SPAWN_WINDOW 秒内已拉起 _MAX_SPAWNS 次就不再拉, 防止持续故障时无限重启."""
+    _spawn_times[:] = [t for t in _spawn_times if now - t < _SPAWN_WINDOW]
+    return len(_spawn_times) < _MAX_SPAWNS
 
 
 def _server_listening() -> bool:
@@ -45,6 +55,11 @@ def _watch(base_dir: Path) -> None:
     while not _stop.is_set():
         # 端口没人听, 且不是"刚拉起还在加载模型" -> 拉起
         if not _server_listening() and (_proc is None or _proc.poll() is not None):
+            if not _may_spawn(time.monotonic()):
+                logger.error(f'服务端 {_SPAWN_WINDOW // 60} 分钟内已拉起 {_MAX_SPAWNS} 次仍不在, 放弃自动拉起; '
+                             f'查 logs/server_latest.log 后托盘「重启」')
+                return
+            _spawn_times.append(time.monotonic())
             try:
                 _spawn(base_dir)
             except Exception as e:
@@ -107,6 +122,7 @@ def switch_model(base_dir, model_type: str) -> bool:
     tmp.write_text(_MODEL_RE.sub(lambda m: f"{m.group(1)}'{model_type}'", cfg.read_text(encoding='utf-8'), count=1),
                    encoding='utf-8')
     os.replace(tmp, cfg)
+    _spawn_times.clear()   # 主动切换引起的重启不计入重试上限
     if _proc is not None and _proc.poll() is None:
         subprocess.run(['taskkill', '/PID', str(_proc.pid), '/T', '/F'],
                        capture_output=True, creationflags=CREATE_NO_WINDOW)

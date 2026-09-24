@@ -8,6 +8,7 @@
 同 socket 内保持 FIFO 顺序，跨 socket 间轮转调度。
 """
 
+import os
 from collections import OrderedDict, deque
 from multiprocessing import Queue
 from multiprocessing.managers import ListProxy
@@ -16,6 +17,16 @@ from .pipeline import TaskPipeline
 from ..state import WorkerState
 from .gpu_boost import GpuBoostManager
 from . import logger
+
+
+# 显卡被重启/驱动重置后, 进程内的 DirectML / Vulkan 设备永久失效且不会自愈 (2026-09-24 实测 887A0005).
+# 只能换新进程重建; 重试上限在客户端 server_launcher.
+_GPU_LOST_MARKERS = ('887A0005', '887A0006', '887A0007', '887A0020', 'DEVICE_LOST', 'DEVICELOST', 'DMLEXECUTIONPROVIDER')
+
+
+def is_gpu_lost(e: BaseException) -> bool:
+    s = str(e).upper()
+    return any(m in s for m in _GPU_LOST_MARKERS)
 
 
 class TaskBuffer:
@@ -162,5 +173,8 @@ class TaskHandler:
                 continue
             except Exception as e:
                 logger.error(f"任务执行出错: {str(e)}", exc_info=True)
+                if is_gpu_lost(e):
+                    logger.error("GPU 设备已失效, 识别进程退出 (服务端随之退出, 由客户端重新拉起)")
+                    os._exit(3)   # 不走 cleanup: 失效设备上释放资源可能卡住
 
         logger.info("TaskHandler 工作循环结束")
