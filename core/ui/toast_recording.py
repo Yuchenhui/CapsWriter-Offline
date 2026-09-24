@@ -75,9 +75,9 @@ def _target_alpha() -> float:
 
 
 def _cursor_monitor_workarea() -> Optional[tuple]:
-    """返回光标所在显示器的工作区 (left, top, right, bottom)
+    """返回 (鼠标 x, 鼠标 y, 所在显示器工作区 left, top, right, bottom)
 
-    工作区已自动排除任务栏；用于把胶囊放在焦点屏幕的底部而非固定主屏。
+    工作区已自动排除任务栏；用于把胶囊放在鼠标指针旁并收进该屏幕内。
     仅 Windows 有效，失败时返回 None 由调用方降级。
     """
     try:
@@ -107,7 +107,7 @@ def _cursor_monitor_workarea() -> Optional[tuple]:
             return None
 
         w = mi.rcWork
-        return (w.left, w.top, w.right, w.bottom)
+        return (pt.x, pt.y, w.left, w.top, w.right, w.bottom)
     except Exception:
         return None
 
@@ -232,13 +232,15 @@ class ToastWindowRecording:
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # 定位：光标所在屏幕的底部居中，贴近任务栏
+        # 本地改 2026-09-24: 定位在鼠标指针正下方 (用户要求; Windows Terminal 不报告文字光标位置, 只能跟鼠标),
+        # 底下放不下就放到指针上方, 靠屏幕边时收进工作区. 窗口点击穿透, 不挡鼠标
         margin = _bottom_margin()
-        area = _cursor_monitor_workarea()
-        if area is not None:
-            left, top, right, bottom = area
-            x = int(left + (right - left - self._w) // 2)
-            y = int(bottom - self._h - margin)
+        info = _cursor_monitor_workarea()
+        if info is not None:
+            cx, cy, left, top, right, bottom = info
+            x = int(min(max(cx - self._w // 2, left), right - self._w))
+            y = cy + margin if cy + margin + self._h <= bottom else cy - margin - self._h
+            y = int(min(max(y, top), bottom - self._h))
         else:
             # 降级：主屏底部居中
             sw = self.window.winfo_screenwidth()
