@@ -39,6 +39,15 @@ def close_active() -> None:
         inst.stop()
 
 
+def close_processing() -> None:
+    """识别结果到达时用: 只关「正在转文字」的胶囊.
+    本地改: 上一句结果晚到时, 当前胶囊可能已是下一句的录音胶囊, 不能关 (2026-09-24 11:23 实测关错后留下孤儿胶囊)"""
+    with _active_lock:
+        inst = _active
+    if inst is not None and inst._processing:
+        inst.stop()
+
+
 def _register(inst: 'RecordingToast') -> None:
     global _active
     with _active_lock:
@@ -61,6 +70,7 @@ class RecordingToast:
     def __init__(self) -> None:
         self._manager = None
         self._msg_id: Optional[str] = None
+        self._processing = False
 
     def start(self) -> None:
         """开始显示悬浮提示（先关掉可能残留的上一个胶囊）"""
@@ -85,6 +95,7 @@ class RecordingToast:
                 stop_callback=self._on_window_gone,  # 胶囊超时自毁时回收注册状态
             )
             self._msg_id = self._manager.add_message(msg)
+            self._processing = False
             _register(self)
             logger.debug('录音悬浮提示已显示')
         except Exception as e:
@@ -108,6 +119,7 @@ class RecordingToast:
         try:
             timeout_ms = int(duration * 800) + 10_000
             self._manager.update_toast(self._msg_id, f'processing:{timeout_ms}')
+            self._processing = True
             logger.debug(f'录音悬浮提示已切换为正在转文字 (超时兜底 {timeout_ms}ms)')
         except Exception as e:
             logger.error(f'切换转写状态失败: {e}', exc_info=True)

@@ -30,6 +30,10 @@ PROVIDERS = {
         'key_env': 'MIMO_API_KEY',
     },
 }
+# 2026-09-24 试过 Groq gpt-oss-120b, 不收录: 免费档按每分钟 token 限流, 评测 26 次里 18 次 429; 单次 0.9s (生成 0.05s).
+# 真要加回, 配置是: url https://api.groq.com/openai/v1/chat/completions, model openai/gpt-oss-120b, key_env GROQ_API_KEY,
+# body {'thinking': None, 'max_tokens': None, 'reasoning_effort': 'low', 'include_reasoning': False}
+# (推理模型关不掉思考只能 low; 思考 token 计入上限; 不认 thinking 字段). 服务商字段 body 覆盖请求参数, None = 删掉.
 DEFAULT = 'deepseek'
 
 

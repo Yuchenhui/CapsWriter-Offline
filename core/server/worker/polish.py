@@ -191,8 +191,10 @@ def _call_api(text: str, pid: str, window: str = '') -> str:
         'temperature': 0,
         'thinking': {'type': 'disabled'},   # 思考开着要多等几秒, 这个任务用不着
     }
+    body = {k: v for k, v in {**body, **prov.get('body', {})}.items() if v is not None}   # 服务商覆盖, None = 删掉该参数
     req = urllib.request.Request(prov['url'], json.dumps(body).encode('utf-8'),
-                                 {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
+                                 {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
+                                  'User-Agent': 'CapsWriter-Offline'})   # Groq (Cloudflare) 拦 Python-urllib 默认 UA: 403 error 1010
     with _OPENER.open(req, timeout=Config.polish_timeout) as r:
         out = json.load(r)['choices'][0]['message'].get('content') or ''
     out = re.sub(r'<think>.*?</think>', '', out, flags=re.S)

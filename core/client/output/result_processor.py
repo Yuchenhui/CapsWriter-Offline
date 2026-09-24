@@ -24,7 +24,7 @@ from core.client.udp.udp_broadcaster import broadcast_output_udp
 from core.tools.zhconv import convert as zhconv_convert
 from core.client.audio.file_manager import AudioFileManager
 from core.client.llm.llm_write_md import write_llm_md
-from core.client.ui.recording_toast import close_active as close_recording_hud
+from core.client.ui.recording_toast import close_processing as close_recording_hud
 
 if TYPE_CHECKING:
     from core.client.state import ClientState

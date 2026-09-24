@@ -121,6 +121,7 @@ class ToastMessageManager:
         self.message_queue: Queue[ToastMessage] = Queue()
         self.is_running = False
         self.active_windows: List = []  # 运行时类型，避免循环导入
+        self._cancelled_ids: set = set()  # 本地改: close 落在"已出队、未建好"空档里的 ID, 建好后立即销毁
         self.root: Optional[tk.Tk] = None
 
         # 在子线程中启动 Tkinter
@@ -209,6 +210,11 @@ class ToastMessageManager:
                         '<Destroy>',
                         lambda _, w=toast_window: self._remove_window(w)
                     )
+
+                    if msg_id in self._cancelled_ids:   # close 落在创建空档里
+                        self._cancelled_ids.discard(msg_id)
+                        toast_window.window.destroy()
+                        logger.debug(f"消息 {str(msg_id)[:8]} 创建期间已被关闭，已销毁")
 
                     # 补投递窗口创建前到达的文本更新(update_toast 赶在创建前时暂存于消息上)
                     pending = getattr(msg, '_pending_text', None)
@@ -319,7 +325,9 @@ class ToastMessageManager:
         if self._stash_on_queued(msg_id, '_cancelled', True):
             logger.debug(f"消息 {msg_id[:8]} 窗口未创建，已标记取消")
             return
-        logger.warning(f"未找到消息 ID: {msg_id[:8]}")
+        # 已出队但窗口还没建好 (Tk 线程正在创建): 记下, 建好后立即销毁
+        self._cancelled_ids.add(msg_id)
+        logger.warning(f"未找到消息 ID: {msg_id[:8]} (若正在创建, 建好后销毁)")
 
     async def wait_for_window(self, msg_id: str, timeout: float = 1.0) -> Optional[ToastWindowBase]:
         """异步等待指定 ID 的窗口创建完成
