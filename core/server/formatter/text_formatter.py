@@ -52,7 +52,7 @@ class TextFormatter:
         """
         self.punc_model = punc_model
 
-    def format(self, text: str) -> str:
+    def format(self, text: str, skip_num: bool = False) -> str:
         """
         对输入文本应用一组格式化规则
 
@@ -79,7 +79,7 @@ class TextFormatter:
                 logger.warning(f"标点补全失败: {e}")
 
         # 2. 中文数字转阿拉伯数字
-        if Config.format_num:
+        if Config.format_num and not skip_num:   # 本地改: 二次整理成功时数字已由 AI 按上下文处理, 不再跑规则
             try:
                 text = _itn(text)
             except Exception as e:

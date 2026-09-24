@@ -226,12 +226,13 @@ def _call_api(text: str, pid: str, window: str = '', structure: bool = False) ->
     return re.sub(r'</?识别结果>', '', out).strip()   # 偶尔会把标签一起抄回来   # 有的服务商关了思考仍可能夹带思考块
 
 
-def polish(text: str, choice=True, window: str = '', structure: bool = False) -> str:
+def polish_ex(text: str, choice=True, window: str = '', structure: bool = False) -> tuple:
     """choice: 客户端选的服务商 id (兼容旧 bool). 未启用 / 空文本 / 任何失败都原样返回.
-    structure: 结构化整理 (允许重排/编号/换行), 保险换成 _coverage."""
+    structure: 结构化整理 (允许重排/编号/换行), 保险换成 _coverage.
+    返回 (文字, 是否整理成功); 成功时调用方跳过规则式数字规整 (AI 已按上下文处理数字, 规则会把 "唯一一个" 转成 "唯11个")."""
     pid = polish_providers.resolve(choice)
     if not pid or not getattr(Config, 'polish_enabled', False) or not text.strip():
-        return text
+        return text, False
     t0 = time.time()
     # 结构化输出更长, 放宽总时限
     limit = max(Config.polish_timeout, getattr(Config, 'polish_structure_timeout', 8.0)) if structure else Config.polish_timeout
@@ -240,7 +241,7 @@ def polish(text: str, choice=True, window: str = '', structure: bool = False) ->
         out = _POOL.submit(_call_api, text, pid, window, structure).result(timeout=limit)
     except Exception as e:
         logger.warning(f'二次整理 [{pid}] 失败, 用原文 ({time.time() - t0:.2f}s): {e}')
-        return text
+        return text, False
     out = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', out)          # 控制字符一律剥掉
     if structure:
         kept, added = _coverage(text, out)
@@ -248,10 +249,10 @@ def polish(text: str, choice=True, window: str = '', structure: bool = False) ->
         if not out or kept < 0.8 or added > 0.15:
             logger.info(f'二次整理 [{pid}] 结构化 {dt:.2f}s, 保留 {kept:.0%} / 新增 {added:.0%} 超限, 用原文')
             logger.debug(f'结构化放弃: {text} -X-> {out!r}')
-            return text
+            return text, False
         logger.info(f'二次整理 [{pid}] 结构化 {dt:.2f}s, 保留 {kept:.0%} / 新增 {added:.0%}' + (', 已分行' if '\n' in out else ''))
         logger.debug(f'结构化: {text} --> {out!r}')
-        return out
+        return out, True
     # 比较前统一小写、去空白: "deep sick"->"DeepSeek" 这种大小写/空格差异不该算改动, 否则短句必被误拦
     out = _drop_cjk_inserts(text, out)
     change, deleted = _change_ratio(text, out, load_terms())
@@ -259,9 +260,13 @@ def polish(text: str, choice=True, window: str = '', structure: bool = False) ->
     if not out or change > Config.polish_max_change or not _deletion_ok(text, out, deleted):
         logger.debug(f'二次整理放弃 (改动 {change:.0%} > {Config.polish_max_change:.0%}, {dt:.2f}s): {text} -X-> {out}')
         logger.info(f'二次整理 [{pid}] {dt:.2f}s, 改动 {change:.0%} / 删除 {deleted:.0%} 超限, 用原文')
-        return text
+        return text, False
     # INFO 级每句一行: 能从日志确认用的是哪家、多快、改没改 (改了什么在 DEBUG 行, 避免全文进 INFO 日志)
     logger.info(f'二次整理 [{pid}] {dt:.2f}s, ' + (f'改动 {change:.0%}' if out != text else '无改动'))
     if out != text:
         logger.debug(f'二次整理 [{pid}] ({change:.0%}, {dt:.2f}s): {text} --> {out}')
-    return out
+    return out, True
+
+
+def polish(text: str, choice=True, window: str = '', structure: bool = False) -> str:
+    return polish_ex(text, choice, window, structure)[0]

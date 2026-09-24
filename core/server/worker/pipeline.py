@@ -16,7 +16,7 @@ from config_server import ServerConfig as Config
 from core.tools.token_sync import sync_tokens_from_text
 from core.server.engines.base import EngineCapabilities
 from .audio import process_audio_task
-from .polish import polish
+from .polish import polish_ex
 from . import logger
 
 # 导入拆分后的算法子包
@@ -136,8 +136,10 @@ class TaskPipeline:
             raw_text = result.text
             if task.type == 'mic' and task.polish:
                 # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
-                result.text = polish(result.text, task.polish, getattr(task, 'window', ''), getattr(task, 'structure', False))
-            result.text = self.formatter.format(result.text)
+                result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''), getattr(task, 'structure', False))
+            else:
+                polished = False
+            result.text = self.formatter.format(result.text, skip_num=polished)
             result.text_accu = self.formatter.format(result.text_accu)
             console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)
             console.print(f'  格式化后：[green]{result.text}\n', soft_wrap=True)
