@@ -17,6 +17,13 @@ THEMES = {
 
 
 def theme() -> dict:
+    try:   # 托盘「胶囊主题」手选 (config_client.capsule_theme: auto / light / dark), auto 才看系统
+        from config_client import ClientConfig
+        forced = getattr(ClientConfig, 'capsule_theme', 'auto')
+        if forced in THEMES:
+            return THEMES[forced]
+    except Exception:
+        pass
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') as k:

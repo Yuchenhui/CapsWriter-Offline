@@ -44,6 +44,7 @@ class TrayManager:
                 ('二次整理', 'submenu', self._polish_items),
                 ('麦克风', 'submenu', self._mic_items),
                 ('麦克风校准…', self._start_calibration),
+                ('胶囊主题', 'submenu', self._theme_items),
                 ('模型', 'submenu', self._model_items),
                 ('词库', 'submenu', self._wordlist_items),
             ]
@@ -153,6 +154,18 @@ class TrayManager:
         return [('关', self._polish_action(''), lambda: not Config.polish)] + [
             (p['name'], self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
             None, ('结构化整理（编号 / 换行）', self._toggle_structure, lambda: Config.polish_structure)]
+
+    @staticmethod
+    def _theme_items():
+        """托盘「胶囊主题」: 跟随系统 / 浅色 / 深色, 单选, 下一句起生效, 存 user_state.json"""
+        def pick(v):
+            def action():
+                Config.capsule_theme = v
+                user_state.save()
+                logger.info(f'胶囊主题: {v}')
+            return action
+        return [(label, pick(v), lambda v=v: Config.capsule_theme == v)
+                for label, v in (('跟随系统', 'auto'), ('浅色', 'light'), ('深色', 'dark'))]
 
     @staticmethod
     def _toggle_structure():

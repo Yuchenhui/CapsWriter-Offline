@@ -11,7 +11,7 @@ from config_client import ClientConfig as Config
 logger = logging.getLogger('client.' + __name__.rsplit('.', 1)[-1])   # 挂到 client 下才会写进 client_latest.log
 
 STATE_FILE = Path('user_state.json')   # 工作目录即安装目录
-KEYS = ('polish', 'polish_structure')                     # 允许持久化的 Config 属性
+KEYS = ('polish', 'polish_structure', 'capsule_theme')                     # 允许持久化的 Config 属性
 
 
 def load() -> None:
