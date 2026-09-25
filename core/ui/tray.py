@@ -227,7 +227,7 @@ def _dynamic_menu(fn):
 class _TraySystem:
     """托盘系统内部类"""
     
-    def __init__(self, name: Optional[str] = None, icon_path: Optional[str] = None, more_options: list = None):
+    def __init__(self, name: Optional[str] = None, icon_path: Optional[str] = None, more_options: list = None, restart: bool = True):
         # 延迟导入 pystray
         import pystray
         from pystray import MenuItem as item
@@ -240,17 +240,25 @@ class _TraySystem:
         if self.hwnd:
             _disable_close_button(self.hwnd)
 
-        # 定义菜单
-        menu_items = [
-            item(f"{self.title}", lambda: None, enabled=False),
-            # 本地改: 去掉「👁️ 显示/隐藏」—— conhost --headless 无窗口启动, 没有控制台窗口可显示
-        ]
+        # 定义菜单 (本地改 2026-09-25: 去掉标题项, 由调用方的状态行说明; 去掉「显示/隐藏」—— headless 无控制台窗口)
+        menu_items = []
 
-        # 添加额外选项
+        # 添加额外选项. 本地改 2026-09-25 新格式: (文字或 callable(item), 'status') = 不可点状态行;
+        # (文字, 动作, 'default') = 默认项 (左键单击托盘图标触发). 状态行之后自动加分隔线
         if more_options:
+            seen_status = False
             for opt in more_options:
                 opt_name, opt_func = opt[0], opt[1]
-                if len(opt) > 2 and opt_func == 'submenu':   # 本地改: 动态子菜单 (可嵌套), 每次重建菜单时重新取列表
+                if opt_func == 'status':
+                    menu_items.append(item(opt_name, lambda: None, enabled=False))
+                    seen_status = True
+                    continue
+                if seen_status:
+                    menu_items.append(pystray.Menu.SEPARATOR)
+                    seen_status = False
+                if len(opt) > 2 and opt[2] == 'default':
+                    menu_items.append(item(opt_name, opt_func, default=True))
+                elif len(opt) > 2 and opt_func == 'submenu':   # 本地改: 动态子菜单 (可嵌套), 每次重建菜单时重新取列表
                     menu_items.append(item(opt_name, _dynamic_menu(opt[2])))
                 elif len(opt) > 2:   # 第三项 = 勾选状态函数, 做成可勾选的开关项
                     checked = opt[2]
@@ -258,7 +266,8 @@ class _TraySystem:
                 else:
                     menu_items.append(item(opt_name, opt_func))
 
-        menu_items.append(item('重启', self.on_restart))
+        if restart:
+            menu_items.append(item('重启', self.on_restart))
         menu_items.append(item('退出', self.on_exit))
 
         self.icon = pystray.Icon(
@@ -373,7 +382,8 @@ class _TraySystem:
         self.toggle_window()
 
 
-def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = None, exit_callback=None, more_options: list = None) -> bool:
+def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = None, exit_callback=None, more_options: list = None,
+                       restart: bool = True) -> bool:
     """
     启用最小化到托盘功能
 
@@ -413,7 +423,7 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
         # 本地改: 原来没控制台窗口就不建托盘 —— conhost --headless 无窗口启动时托盘会凭空消失.
         # 托盘本身不依赖控制台; 没窗口时「显示/隐藏」和最小化监控本就是空操作 (hwnd 为空直接 return)
-        _tray_instance = _TraySystem(name, icon_path, more_options)
+        _tray_instance = _TraySystem(name, icon_path, more_options, restart)
         _tray_instance.start()
         return True
 

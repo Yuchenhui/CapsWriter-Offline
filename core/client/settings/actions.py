@@ -16,6 +16,11 @@ def _set(attr, value, label) -> bool:
     setattr(Config, attr, value)
     user_state.save()
     logger.info(f'设置: {label} -> {value!r}')
+    try:                                   # 托盘状态行跟着变
+        from core.ui.tray import refresh_menu
+        refresh_menu()
+    except Exception:
+        pass
     return True
 
 
