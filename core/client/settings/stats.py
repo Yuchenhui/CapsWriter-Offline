@@ -8,7 +8,7 @@ from core.tools import polish_usage as pu
 NAMES = {
     'qwen-audio-3.1-asr-flash-streaming': '千问 qwen-audio-3.1（流式）',
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
-    'asr-1.0': 'MiniMax asr-1.0',
+    'asr-1.0': 'MiniMax asr-1.0（套餐）',
     'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
     'glm-asr-2512': '智谱 glm-asr-2512（套餐）',
 }
@@ -98,15 +98,17 @@ if __name__ == '__main__':
     today = dt.date(2026, 9, 25)
     asr = {'2026-09-25': {'qwen3-asr-flash': {'calls': 3, 'sec': 60.0, 'bsec': 60.0, 'in': 0, 'out': 0},
                           'local:qwen_asr': {'calls': 5, 'sec': 30.0, 'in': 0, 'out': 0}},
-           '2026-09-20': {'asr-1.0': {'calls': 1, 'sec': 3600.0, 'bsec': 3600.0, 'in': 0, 'out': 0}},
+           '2026-09-20': {'qwen3-asr-flash': {'calls': 1, 'sec': 3600.0, 'bsec': 3600.0, 'in': 0, 'out': 0},
+                          'asr-1.0': {'calls': 1, 'sec': 60.0, 'bsec': 60.0, 'in': 0, 'out': 0}},
            '2026-08-01': {'qwen3-asr-flash': {'calls': 1, 'sec': 10.0, 'bsec': 10.0, 'in': 0, 'out': 0}}}
     p = periods(asr, today)
     assert p['今日']['calls'] == 8 and abs(p['今日']['yuan'] - 60 * 0.00022) < 1e-12
-    assert p['本月']['calls'] == 9 and p['累计']['calls'] == 10
+    assert p['本月']['calls'] == 10 and p['累计']['calls'] == 11
     rows = by_model(asr, '2026-09')
-    assert rows[0][0] == 'MiniMax asr-1.0' and abs(rows[0][3] - 2.5) < 1e-9 and rows[-1][0] == '本地 Qwen3-ASR'
+    assert rows[0][0] == '千问 qwen3-asr-flash' and abs(rows[0][3] - 3660 * 0.00022) < 1e-9 and rows[-1][0] == 'MiniMax asr-1.0（套餐）'  # 同为 0 元按句数排
+    assert dict((r[0], r[3]) for r in rows)['MiniMax asr-1.0（套餐）'] == 0
     dl = daily(asr, today)
-    assert len(dl) == 14 and dl[-1][0] == '9/25' and dl[-6][0] == '9/20' and abs(dl[-6][1] - 2.5) < 1e-9
+    assert len(dl) == 14 and dl[-1][0] == '9/25' and dl[-6][0] == '9/20' and abs(dl[-6][1] - 3600 * 0.00022) < 1e-9
     assert polish_tokens({'2026-09-25': {'deepseek': {'in': 10, 'out': 2, 'calls': 1}}})['in'] == 10
     pol = {'2026-09-25': {'deepseek': {'calls': 2, 'in': 3000, 'out': 50, 'hit': 2500, 'yuan': 0.002},
                           'mimo': {'calls': 4, 'in': 6000, 'out': 90}}}

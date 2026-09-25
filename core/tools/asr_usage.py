@@ -20,11 +20,10 @@ _lock = threading.Lock()
 #   ('token', 上行 元/百万token, 下行 元/百万token)   ('sec', 元/秒)
 # qwen-audio-3.1-asr-flash-streaming: 百炼中文文档 上行 6 / 下行 4.5; 实测音频约 16~21 token/秒
 # qwen3-asr-flash: 百炼中文文档 0.00022 元/秒 (音频时长)
-# asr-1.0: MiniMax 开放平台 按量计费 2.50 元/小时
+# 套餐内不计钱 (不在表里 = 0): asr-1.0 (MiniMax Token Plan, key 取自 mmx-cli), mimo-v2.5-asr, glm-asr-2512
 PRICES = {
     'qwen-audio-3.1-asr-flash-streaming': ('token', 6.0, 4.5),
     'qwen3-asr-flash': ('sec', 0.00022),
-    'asr-1.0': ('sec', 2.5 / 3600),
 }
 
 
@@ -98,7 +97,7 @@ if __name__ == '__main__':
     today = time.strftime('%Y-%m-%d')
     s = period(load(), today)
     assert (s['calls'], s['in'], s['out'], round(s['sec'], 2)) == (5, 1027, 121, 173.29), s
-    expect = (1027 * 6 + 121 * 4.5) / 1e6 + 55 * 0.00022 + 55 * 2.5 / 3600
+    expect = (1027 * 6 + 121 * 4.5) / 1e6 + 55 * 0.00022           # asr-1.0 套餐内, 不计钱
     assert abs(s['yuan'] - expect) < 1e-12, (s['yuan'], expect)
     assert period(load(), time.strftime('%Y-%m')) == period(load()) == s
     assert yuan(0) == '¥0' and yuan(0.0067) == '<¥0.01' and yuan(0.29) == '¥0.29'
