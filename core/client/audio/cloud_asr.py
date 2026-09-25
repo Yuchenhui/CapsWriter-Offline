@@ -34,8 +34,8 @@ _CONNECT_TIMEOUT = 2.0
 
 # 托盘「识别」的选项: key -> (菜单名, 类型, 模型, 需要的 key 环境变量). 价格见 core/tools/asr_usage.PRICES
 ENGINES = {
-    'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
-    'doubao-stream': ('豆包 Seed-ASR 2.0（实时出字）', 'stream', 'doubao-seed-asr-2.0', 'VOLC_ASR_API_KEY'),
+    'qwen-stream': ('千问 qwen-audio-3.1', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
+    'doubao-stream': ('豆包 Seed-ASR 2.0', 'stream', 'doubao-seed-asr-2.0', 'VOLC_ASR_API_KEY'),
     'doubao-batch': ('豆包 Seed-ASR 2.0', 'batch', 'doubao-seed-asr-2.0-nostream', 'VOLC_ASR_API_KEY'),
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
