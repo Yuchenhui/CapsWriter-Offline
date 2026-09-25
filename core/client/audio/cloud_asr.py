@@ -50,14 +50,15 @@ def engine_key() -> str:
 
 
 def _has_key(env: str) -> bool:
-    pid = {'MINIMAX_API_KEY': 'minimax', 'MIMO_API_KEY': 'mimo', 'ZHIPU_API_KEY': 'zhipu'}.get(env)
+    pid = {'MINIMAX_API_KEY': 'minimax', 'MIMO_API_KEY': 'mimo', 'ZHIPU_API_KEY': 'zhipu', 'KIMI_API_KEY': 'kimi'}.get(env)
     if pid:          # 与二次整理共用 key: MiniMax 另认 mmx-cli 配置; 也读启动后才设的注册表变量
         from core.tools.polish_providers import api_key
         try:
             return bool(api_key(pid))
         except RuntimeError:
             return False
-    return bool(os.environ.get(env))
+    from core.tools.polish_providers import env_key
+    return bool(env_key(env))
 
 
 def available() -> bool:
@@ -165,7 +166,7 @@ class CloudStream:
         from websockets.asyncio.client import connect
         try:
             self._ws = await asyncio.wait_for(connect(URL, additional_headers={
-                'Authorization': f'bearer {os.environ["DASHSCOPE_API_KEY"]}'}, max_size=2 ** 20), _CONNECT_TIMEOUT)
+                'Authorization': f'bearer {_dashscope_key()}'}, max_size=2 ** 20), _CONNECT_TIMEOUT)
             await self._ws.send(json.dumps({
                 'header': {'action': 'run-task', 'task_id': self._tid, 'streaming': 'duplex'},
                 'payload': {'task_group': 'audio', 'task': 'asr', 'function': 'recognition',
@@ -316,10 +317,15 @@ class BatchASR:
         req = urllib.request.Request('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
                                      json.dumps({'model': self._model, 'messages': messages, 'stream': False,
                                                  'asr_options': {'enable_itn': True}}).encode(),
-                                     {'Authorization': 'Bearer ' + os.environ['DASHSCOPE_API_KEY'],
+                                     {'Authorization': 'Bearer ' + _dashscope_key(),
                                       'Content-Type': 'application/json'})
         r = json.load(urllib.request.urlopen(req, timeout=30))
         return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
+
+
+def _dashscope_key() -> str:
+    from core.tools.polish_providers import env_key
+    return env_key('DASHSCOPE_API_KEY')
 
 
 def _split(pcm: np.ndarray, limit: float = 29.0, lo: float = 20.0) -> list:

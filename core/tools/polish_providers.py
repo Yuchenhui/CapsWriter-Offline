@@ -73,9 +73,15 @@ def _user_env(name: str) -> str:
         return ''
 
 
+def env_key(name: str) -> str:
+    """注册表优先: 换 key 后不用重启就用新值; 进程继承的 os.environ 可能是旧 key
+    (部署脚本从已开着的终端拉起 CapsWriter, 继承的是终端启动时的环境)"""
+    return _user_env(name) or os.environ.get(name, '')
+
+
 def api_key(pid: str) -> str:
     p = PROVIDERS[pid]
-    key = os.environ.get(p['key_env'], '') or _user_env(p['key_env'])
+    key = env_key(p['key_env'])
     if not key and p.get('key_file'):
         path, field = p['key_file']
         try:
