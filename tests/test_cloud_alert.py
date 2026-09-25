@@ -8,7 +8,8 @@ import urllib.error
 from core.client.audio import cloud_asr as ca
 
 shown = []
-sys.modules['core.ui.toast'] = types.SimpleNamespace(toast=lambda text, **kw: shown.append(text))   # 不真弹窗
+import core.ui.live_bubble as lb
+lb.notice = lambda text, seconds=4.0: shown.append(text)                      # 不真显示
 
 
 def http(code, body):
@@ -28,5 +29,5 @@ ca.alert('balance')
 ca.alert('balance')                     # 10 分钟内同类不再弹
 ca.alert('timeout')                     # 不同类照弹
 assert len(shown) == 2, shown
-assert shown[0].startswith('智谱 glm-asr-2512：余额不足') and '本地识别' in shown[0], shown[0]
+assert shown[0].startswith('智谱：余额不足') and '本地识别' in shown[0], shown[0]
 print('OK')

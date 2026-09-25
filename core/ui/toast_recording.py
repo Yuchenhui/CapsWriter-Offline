@@ -327,6 +327,8 @@ class ToastWindowRecording:
         self.window.geometry(f'{self._w}x{self._h}+{x}+{y}')
         self._preview, self._bubble, self._bubble_t, self._bubble_off = '', None, None, False   # 实时识别文字 (任意线程写) / 气泡 (Tk 线程)
         self._scale = capsule_themes.SCALE
+        from core.ui import live_bubble
+        live_bubble.remember((x, y, self._w, self._h), self._above, self._workarea, _capsule_theme_name(), self._scale)   # 提示气泡用
         self.window.bind('<Destroy>', lambda e: e.widget is self.window and self._bubble is not None and self._bubble.destroy(), add='+')
 
         # 预存布局坐标

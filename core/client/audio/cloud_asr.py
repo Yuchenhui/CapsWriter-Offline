@@ -69,15 +69,15 @@ def available() -> bool:
     return kind != 'local' and _has_key(env)
 
 
-# ---- 失败提示: 云端出问题时弹红条告诉用户 (不只写日志). 同一引擎同一类错误 10 分钟内只弹一次 ----
+# ---- 失败提示: 云端出问题时在胶囊下方的气泡里提示 (不只写日志). 同一引擎同一类错误 10 分钟内只提示一次 ----
 _ALERT_GAP = 600
 _alerted: dict = {}
-_HINTS = {'balance': ('余额不足或资源包用完', '去控制台充值, 或在设置里换引擎'),
-          'auth': ('key 无效或服务没开通', '检查环境变量里的 key, 或在设置里换引擎'),
-          'nokey': ('没设置 key', '在用户环境变量里加上 key, 或在设置里换引擎'),
+_HINTS = {'balance': ('余额不足', '去控制台充值，或在设置里换引擎'),
+          'auth': ('key 无效或服务没开通', '检查环境变量里的 key，或在设置里换引擎'),
+          'nokey': ('没设置 key', '在用户环境变量里加上 key，或在设置里换引擎'),
           'rate': ('请求太频繁被限流', '稍后会自动恢复'),
-          'timeout': ('响应超时', '网络慢或服务繁忙, 下一句会再试'),
-          'net': ('连不上服务', '检查网络; 下一句会再试'),
+          'timeout': ('响应超时', '网络慢或服务繁忙，下一句会再试'),
+          'net': ('连不上服务', '检查网络，下一句会再试'),
           'error': ('接口报错', '详情见 logs/client_latest.log')}
 
 
@@ -118,8 +118,8 @@ def alert(kind: str) -> None:
     _alerted[(name, kind)] = now
     what, todo = _HINTS.get(kind, _HINTS['error'])
     try:
-        from core.ui.toast import toast
-        toast(f'{name}：{what}，这句已改用本地识别。\n{todo}', duration=8000)
+        from core.ui import live_bubble      # 胶囊下方的小气泡 (琥珀色字), 不弹大框
+        live_bubble.notice(f'{name.split()[0]}：{what}，这句改用了本地识别\n{todo}', seconds=5.0)
     except Exception as e:
         logger.debug(f'弹失败提示失败: {e}')
 

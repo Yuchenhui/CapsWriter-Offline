@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import math
 import os
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -262,3 +263,46 @@ if __name__ == '__main__':   # 离线出图: python -m core.ui.live_bubble <输�
             bg.alpha_composite(img, (10, 10))
             bg.save(os.path.join(out, f'bubble_{key}_{name}.png'))
     print('live_bubble selftest ok')
+
+
+# ---- 提示气泡: 云端识别失败等提示, 样式同实时识别气泡, 字用警示色; 胶囊关了也停留几秒再淡出 ----
+_last = None       # 最近一次胶囊的 (anchor, above, workarea, theme_key, scale), 胶囊显示时记下
+
+
+def remember(anchor: tuple, above: bool, workarea, theme_key: str, scale: float) -> None:
+    global _last
+    _last = (anchor, above, workarea, theme_key, scale)
+
+
+def notice(text: str, seconds: float = 4.0) -> bool:
+    """任意线程: 在最近一次胶囊的位置显示提示; 还没显示过胶囊时返回 False"""
+    if _last is None:
+        return False
+    from core.ui.toast_manager import ToastMessageManager
+    m = ToastMessageManager()
+    m.call_soon(lambda: _Notice(m.root, text, seconds))
+    return True
+
+
+class _Notice:
+    def __init__(self, root, text: str, seconds: float):
+        from dataclasses import replace
+        anchor, above, workarea, theme_key, scale = _last
+        self.b = LiveBubble(root, anchor, above, workarea, theme_key, scale)
+        light = sum(self.b.style.bg[:3]) > 384
+        self.b.style = replace(self.b.style, fg=(180, 83, 9, 255) if light else (255, 184, 64, 255))   # 琥珀色
+        self.b.tw.shown = self.text = text                   # 整句直接显示, 不走打字效果
+        self.root, self.left, self.t = root, seconds, time.perf_counter()
+        self._tick()
+
+    def _tick(self):
+        now = time.perf_counter()
+        dt, self.t = now - self.t, now
+        self.left -= dt
+        if self.left <= 0:
+            self.b.fade_out()
+        self.b.tick(self.text, dt)
+        if self.b.fading and self.b.alpha <= 0:
+            self.b.destroy()
+            return
+        self.root.after(16, self._tick)
