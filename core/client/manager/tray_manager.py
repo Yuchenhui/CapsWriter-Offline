@@ -40,7 +40,7 @@ class TrayManager:
                 # 本地改 (2026-09-23 精简): 去掉 日记 (录音已关) / 上下文 (由 terms.txt 取代) / 清除记忆 (LLM 已关) /
                 # 重开音频 (流失效自动重开 + 麦克风菜单 + 重启 已覆盖); 模型、词库改二级菜单.
                 # 2026-09-24 再删 复制结果 / 剪贴板 → 术语表 (用户从没用过; 识别结果本就留在剪贴板和 Win+V 历史里)
-                ('二次整理', 'submenu', self._polish_items),
+                (self._polish_label, 'submenu', self._polish_items),   # 文字带今日 token 用量
                 ('麦克风', 'submenu', self._mic_items),
                 ('麦克风校准…', self._start_calibration),
                 ('胶囊主题', 'submenu', self._theme_items),
@@ -150,9 +150,26 @@ class TrayManager:
     def _polish_items(self):
         """托盘「二次整理」子菜单: 关 / 各服务商, 单选, 下一句起生效, 存 user_state.json"""
         from core.tools.polish_providers import PROVIDERS
-        return [('关', self._polish_action(''), lambda: not Config.polish)] + [
-            (p['name'], self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
+        from core.tools import polish_usage as pu
+        data = pu.load()
+        (t_tok, t_n), (a_tok, a_n) = pu.today(data), pu.total(data)
+        since = min(data) if data else ''
+        noop = lambda: None
+        def name(pid, p):
+            tok = pu.today(data, pid)[0]
+            return f"{p['name']}  ·  今日 {pu.fmt(tok)}" if tok else p['name']
+        return [(f'今日 {t_tok:,} token（{t_n} 次）', noop, noop),
+                (f'累计 {a_tok:,} token（{a_n} 次，自 {since[5:]} 起）' if since else '累计 0 token', noop, noop), None,
+                ('关', self._polish_action(''), lambda: not Config.polish)] + [
+            (name(pid, p), self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
             None, ('结构化整理（编号 / 换行）', self._toggle_structure, lambda: Config.polish_structure)]
+
+    @staticmethod
+    def _polish_label(_item=None) -> str:
+        """托盘一级菜单文字: 二次整理 · 今日 N token (pystray 每次重建菜单时调用)"""
+        from core.tools import polish_usage as pu
+        tok = pu.today(pu.load())[0]
+        return f'二次整理  ·  今日 {pu.fmt(tok)} token' if tok else '二次整理'
 
     @staticmethod
     def _theme_items():

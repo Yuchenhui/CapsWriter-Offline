@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from config_server import ServerConfig as Config
 from core.tools.terms import load_terms
 from core.tools import polish_providers
+from core.tools import polish_usage
 from . import logger
 
 _SSL_CTX = ssl.create_default_context()   # 建一次: 每次新建要加载证书库, 实测 11.8ms CPU
@@ -221,7 +222,12 @@ def _call_api(text: str, pid: str, window: str = '', structure: bool = False) ->
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                   'User-Agent': 'CapsWriter-Offline'})   # Groq (Cloudflare) 拦 Python-urllib 默认 UA: 403 error 1010
     with _OPENER.open(req, timeout=Config.polish_timeout) as r:
-        out = json.load(r)['choices'][0]['message'].get('content') or ''
+        data = json.load(r)
+    try:
+        polish_usage.add(pid, data.get('usage'))   # 记 token 用量, 托盘显示; 记失败不影响整理
+    except Exception as e:
+        logger.debug(f'记录二次整理用量失败: {e}')
+    out = data['choices'][0]['message'].get('content') or ''
     out = re.sub(r'<think>.*?</think>', '', out, flags=re.S)
     return re.sub(r'</?识别结果>', '', out).strip()   # 偶尔会把标签一起抄回来   # 有的服务商关了思考仍可能夹带思考块
 

@@ -296,6 +296,9 @@ class ResultProcessor:
             self.state.set_output_text(text)
             broadcast_output_udp(text)
         carry_punc.remember('' if auto_enter else TextOutput.last_stripped)   # 自动回车 = 已发出, 下一句是新消息
+        if Config.polish:   # 服务端已把本句整理用量写进 polish_usage.json, 刷新托盘文字
+            from core.ui.tray import refresh_menu
+            refresh_menu()
 
         # 保存录音与写入 md 文件
         file_audio = None

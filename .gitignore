@@ -190,3 +190,5 @@ release
 *.exe
 
 models/**/*.cfg
+polish_usage.json
+polish_usage.tmp
