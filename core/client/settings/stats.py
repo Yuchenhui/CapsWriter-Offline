@@ -9,6 +9,7 @@ NAMES = {
     'qwen-audio-3.1-asr-flash-streaming': '千问 qwen-audio-3.1（流式）',
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
     'asr-1.0': 'MiniMax asr-1.0',
+    'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
 }
 POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash'}
 LOCAL_NAMES = {'sensevoice': 'SenseVoice', 'fun_asr_nano': 'Fun-ASR-Nano', 'qwen_asr': 'Qwen3-ASR'}

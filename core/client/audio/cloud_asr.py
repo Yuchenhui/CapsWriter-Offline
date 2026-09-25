@@ -35,6 +35,7 @@ _CONNECT_TIMEOUT = 2.0
 ENGINES = {
     'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
+    'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
     'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
     'local': ('本地（托盘「模型」里选）', 'local', '', ''),
 }
@@ -48,10 +49,10 @@ def engine_key() -> str:
 
 
 def _has_key(env: str) -> bool:
-    if env == 'MINIMAX_API_KEY':      # MiniMax 另认 mmx-cli 的配置文件 (同二次整理)
+    if env in ('MINIMAX_API_KEY', 'MIMO_API_KEY'):   # 与二次整理共用 key: MiniMax 另认 mmx-cli 配置; 也读启动后才设的注册表变量
         from core.tools.polish_providers import api_key
         try:
-            return bool(api_key('minimax'))
+            return bool(api_key('minimax' if env == 'MINIMAX_API_KEY' else 'mimo'))
         except RuntimeError:
             return False
     return bool(os.environ.get(env))
@@ -270,6 +271,15 @@ class BatchASR:
                 except OSError:
                     pass
             return r.get('text', ''), r.get('duration', 0)
+        if self._model == 'mimo-v2.5-asr':      # 小米: Token Plan 的 OpenAI 兼容 chat 接口 (同二次整理的 key).
+            from core.tools.polish_providers import PROVIDERS, api_key   # 不传术语表: 2026-09-26 实测传了反而更差
+            req = urllib.request.Request(PROVIDERS['mimo']['url'], json.dumps({
+                'model': self._model, 'asr_options': {'language': 'auto'},
+                'messages': [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {
+                    'data': 'data:audio/wav;base64,' + base64.b64encode(wav).decode()}}]}]}).encode(),
+                {'Authorization': 'Bearer ' + api_key('mimo'), 'Content-Type': 'application/json'})
+            r = json.load(urllib.request.urlopen(req, timeout=30))
+            return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
         from core.tools.terms import load_terms  # 千问 qwen3-asr-flash: OpenAI 兼容, 术语表放 system 作上下文
         messages = [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {
             'data': 'data:audio/wav;base64,' + base64.b64encode(wav).decode()}}]}]
