@@ -18,6 +18,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import time
 import uuid
 from typing import Callable, Optional
@@ -35,6 +36,7 @@ _CONNECT_TIMEOUT = 2.0
 ENGINES = {
     'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
     'doubao-stream': ('豆包 Seed-ASR 2.0（实时出字）', 'stream', 'doubao-seed-asr-2.0', 'VOLC_ASR_API_KEY'),
+    'doubao-batch': ('豆包 Seed-ASR 2.0', 'batch', 'doubao-seed-asr-2.0-nostream', 'VOLC_ASR_API_KEY'),
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
@@ -72,9 +74,9 @@ def create(on_partial: Callable[[str], None]):
     if not available():
         return None
     _, kind, model, _ = ENGINES[engine_key()]
-    if kind == 'batch':
-        return BatchASR(model)
-    return (VolcStream if model.startswith('doubao') else CloudStream)(on_partial, model)
+    if model.startswith('doubao'):
+        return VolcStream(on_partial, model)
+    return BatchASR(model) if kind == 'batch' else CloudStream(on_partial, model)
 
 
 def finish_timeout() -> float:
@@ -226,14 +228,17 @@ class CloudStream:
 
 class VolcStream(CloudStream):
     """豆包流式语音识别 2.0 (火山引擎 bigmodel_async 二进制协议). 开二遍识别: 边说边出字, 每个分句停顿后用非流式模型重识别.
-    2026-09-26 实测同一段 20s 录音: 刷新中位 0.42s, 松开后 0.85s 出最终结果; 准确度不如千问 (PostgreSQL -> Postgres Circle)."""
+    2026-09-26 实测同一段 20s 录音: 刷新中位 0.42s, 松开后 0.85s 出最终结果; 准确度不如千问 (PostgreSQL -> Postgres Circle).
+    非流式 (model 以 -nostream 结尾): 同一资源的 bigmodel_nostream 接口, 录音时照样边录边传但不出字, 松开后一次给结果, 更准;
+    实测同一段 20s 录音松开后 0.96s. 录音文件识别极速版 (volc.bigasr.auc_turbo) 更合适但未开通 (403)."""
     URL = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async'
+    URL_NOSTREAM = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream'
     RESOURCE = 'volc.seedasr.sauc.duration'      # 流式 2.0 小时版; 控制台里的实例名不用管
     CHUNK = 3200                                  # 攒够 200ms 再发 (官方: 双向流式 200ms 一包性能最好)
 
     def __init__(self, on_partial, model='doubao-seed-asr-2.0'):
-        self._buf = []
-        super().__init__(on_partial, model)
+        self._buf, self._nostream = [], model.endswith('-nostream')
+        super().__init__((lambda _t: None) if self._nostream else on_partial, model)
 
     def feed(self, pcm16k: np.ndarray) -> None:
         self._buf.append(pcm16k)
@@ -262,13 +267,13 @@ class VolcStream(CloudStream):
         from core.tools.polish_providers import env_key
         from core.tools.terms import load_terms
         try:
-            self._ws = await asyncio.wait_for(connect(self.URL, additional_headers={
+            self._ws = await asyncio.wait_for(connect(self.URL_NOSTREAM if self._nostream else self.URL, additional_headers={
                 'X-Api-Key': env_key('VOLC_ASR_API_KEY'), 'X-Api-Resource-Id': self.RESOURCE,
                 'X-Api-Connect-Id': self._tid}, max_size=2 ** 22), _CONNECT_TIMEOUT)
             req = {'user': {'uid': 'capswriter'}, 'audio': {'format': 'pcm', 'rate': 16000, 'bits': 16, 'channel': 1},
                    'request': {'model_name': 'bigmodel', 'enable_itn': True, 'enable_punc': True,
-                               'enable_nonstream': True, 'result_type': 'full'}}
-            words = [w.strip() for w in load_terms().split(',') if w.strip()][:30]     # 双向流式热词上限 100 token
+                               'enable_nonstream': not self._nostream, 'result_type': 'full'}}
+            words = [w.strip() for w in load_terms().split(',') if w.strip()][:5000 if self._nostream else 30]  # 热词上限: 双向流式 100 token, nostream 5000 词
             if words:
                 req['request']['corpus'] = {'context': json.dumps({'hotwords': [{'word': w} for w in words]}, ensure_ascii=False)}
             await self._ws.send(self._frame(0b0001, 0, 0b0001, json.dumps(req).encode()))
@@ -338,7 +343,7 @@ class BatchASR:
             asr_usage.add(self._model, {'seconds': billed}, len(pcm) / 16000)
         except Exception as e:
             logger.debug(f'记录在线识别用量失败: {e}')
-        if not text.strip():
+        if not re.sub(r'[\W_]+', '', text):      # 空或只有标点 / 符号 = 没识别到
             logger.warning(f'在线识别 {self._model} {time.perf_counter() - t:.2f}s 后返回空文字, 用本地识别 '
                            f'(音频 {len(pcm) / 16000:.1f}s, 峰值 {int(np.abs(pcm).max()) if len(pcm) else 0})')
             return None
@@ -391,7 +396,8 @@ class BatchASR:
                                          {'Authorization': 'Bearer ' + api_key('zhipu'),
                                           'Content-Type': f'multipart/form-data; boundary={b}'})
             r = json.load(urllib.request.urlopen(req, timeout=30))
-            return r.get('text') or '', (len(wav) - 44) / 32000
+            text = re.sub(r'\s*#+\s*$', '', r.get('text') or '')     # 几乎没声音时会吐出 "#" (2026-09-26 实测)
+            return text, (len(wav) - 44) / 32000
         if self._model == 'mimo-v2.5-asr':      # 小米: Token Plan 的 OpenAI 兼容 chat 接口 (同二次整理的 key).
             from core.tools.polish_providers import PROVIDERS, api_key   # 不传术语表: 2026-09-26 实测传了反而更差
             req = urllib.request.Request(PROVIDERS['mimo']['url'], json.dumps({
