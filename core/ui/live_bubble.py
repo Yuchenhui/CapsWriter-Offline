@@ -267,6 +267,7 @@ if __name__ == '__main__':   # 离线出图: python -m core.ui.live_bubble <输�
 
 # ---- 提示气泡: 云端识别失败等提示, 样式同实时识别气泡, 字用警示色; 胶囊关了也停留几秒再淡出 ----
 _last = None       # 最近一次胶囊的 (anchor, above, workarea, theme_key, scale), 胶囊显示时记下
+_shown = None      # 当前显示的提示气泡: 同一时间只显示一个, 新的替换旧的 (免得叠在同一位置)
 
 
 def remember(anchor: tuple, above: bool, workarea, theme_key: str, scale: float) -> None:
@@ -286,7 +287,11 @@ def notice(text: str, seconds: float = 4.0) -> bool:
 
 class _Notice:
     def __init__(self, root, text: str, seconds: float):
+        global _shown
         from dataclasses import replace
+        if _shown is not None:
+            _shown.b.destroy()
+        _shown = self
         anchor, above, workarea, theme_key, scale = _last
         self.b = LiveBubble(root, anchor, above, workarea, theme_key, scale)
         light = sum(self.b.style.bg[:3]) > 384
@@ -302,6 +307,8 @@ class _Notice:
         if self.left <= 0:
             self.b.fade_out()
         self.b.tick(self.text, dt)
+        if _shown is not self:             # 被新提示替换了
+            return
         if self.b.fading and self.b.alpha <= 0:
             self.b.destroy()
             return

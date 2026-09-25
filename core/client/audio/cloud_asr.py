@@ -114,18 +114,30 @@ def classify_exc(e: BaseException) -> tuple:
 _PERSISTENT = {'balance', 'auth', 'nokey'}      # 不会自己好的: 每句都提示 (用户 2026-09-26: 只提示一次就不知道后面都在用本地)
 
 
-def alert(kind: str) -> None:
+def vendor(model_or_key: str) -> str:
+    """引擎 key 或模型名 -> 厂商名 (提示里用)"""
+    for k, (name, _, model, _) in ENGINES.items():
+        if model_or_key in (k, model):
+            return name.split()[0]
+    return model_or_key
+
+
+_chain_running = False       # 候补链进行中: 失败提示说"换候补", 不说"改用本地"
+
+
+def alert(kind: str, model: str = '') -> None:
     """胶囊下方气泡提示. 10 分钟内首次: 两行 (原因 + 怎么办) 停 5 秒;
     之后: 余额 / key 类每句一行短提示停 2 秒, 超时 / 网络类不再提示 (偶发, 下一句多半就好了)"""
-    vendor = ENGINES[engine_key()][0].split()[0]
+    vendor_name = vendor(model or engine_key())
     now = time.monotonic()
-    first = now - _alerted.get((vendor, kind), -_ALERT_GAP) >= _ALERT_GAP
+    first = now - _alerted.get((vendor_name, kind), -_ALERT_GAP) >= _ALERT_GAP
     if not first and kind not in _PERSISTENT:
         return
     if first:
-        _alerted[(vendor, kind)] = now
+        _alerted[(vendor_name, kind)] = now
     what, todo = _HINTS.get(kind, _HINTS['error'])
-    text, sec = (f'{vendor}：{what}，这句改用了本地识别\n{todo}', 5.0) if first else (f'{vendor}不可用（{what}），这句用了本地识别', 2.0)
+    then = '换候补' if _chain_running else '改用了本地识别'
+    text, sec = (f'{vendor_name}：{what}，这句{then}\n{todo}', 5.0) if first else (f'{vendor_name}不可用（{what}），这句{then}', 2.0)
     try:
         from core.ui import live_bubble      # 胶囊下方的小气泡 (琥珀色字), 不弹大框
         live_bubble.notice(text, seconds=sec)
@@ -142,16 +154,36 @@ def end_punc(text: str) -> str:
     return t + ('？' if t[-1] in '吗呢' else '。')
 
 
-def create(on_partial: Callable[[str], None]):
-    """按当前选择建一句话的识别实例; 本地 / 没 key 返回 None (没 key 时弹提示)"""
-    if not available():
-        if ENGINES[engine_key()][1] != 'local':
-            alert('nokey')
-        return None
-    _, kind, model, _ = ENGINES[engine_key()]
+def fallback_keys() -> list:
+    """候补链: 设置里的顺序, 去掉主力 / 流式 / 没 key 的, 走到第一个本地模型为止 (本地一定出结果, 后面的用不到)"""
+    out = []
+    for k in getattr(Config, 'asr_fallback', None) or []:
+        if k.startswith('local:'):
+            break
+        if k != engine_key() and k in ENGINES and ENGINES[k][1] == 'batch' and _has_key(ENGINES[k][3]):
+            out.append(k)
+    return out
+
+
+def _make(key: str, on_partial):
+    _, kind, model, _ = ENGINES[key]
     if model.startswith('doubao'):
         return VolcStream(on_partial, model)
     return BatchASR(model) if kind == 'batch' else CloudStream(on_partial, model)
+
+
+def create(on_partial: Callable[[str], None]):
+    """按当前选择建一句话的识别实例; 有候补时包成 Chain; 本地 (或主力没 key 又没候补) 返回 None"""
+    key = engine_key()
+    if ENGINES[key][1] == 'local':
+        return None
+    primary = _make(key, on_partial) if available() else None
+    if primary is None:
+        alert('nokey')
+    fbs = fallback_keys()
+    if not fbs:
+        return primary
+    return Chain(key, primary, fbs)
 
 
 def finish_timeout() -> float:
@@ -473,13 +505,92 @@ class Preconn:
             return len(cur._conns)
 
 
+class Chain:
+    """主力 + 候补 (设置里拖拽排序): 主力报错 -> 立刻发给下一个; 主力 hedge 秒还没结果 -> 同时发给下一个, 谁先出用谁.
+    候补都是非流式, 用松开时的整段录音. 全部失败返回 None, 由本地识别兜底. 接口同 CloudStream / BatchASR"""
+
+    def __init__(self, key: str, primary, fallbacks: list):
+        self._key, self._primary, self._fallbacks = key, primary, fallbacks
+        self._pcm, self._live, self._done = [], [], False
+
+    def feed(self, pcm16k: np.ndarray) -> None:
+        if self._done:
+            return
+        self._pcm.append(pcm16k)
+        if self._primary is not None:
+            self._primary.feed(pcm16k)
+
+    def cancel(self) -> None:
+        self._done = True
+        for e in [self._primary, *self._live]:
+            if e is not None:
+                e.cancel()
+
+    async def finish(self, timeout: float) -> Optional[str]:
+        global _chain_running
+        if self._done or not self._pcm:
+            self.cancel()
+            return None
+        self._done = True
+        pcm = np.concatenate(self._pcm)
+        audio = len(pcm) / 16000
+        hedge = getattr(Config, 'asr_hedge_sec', 2.0) + audio / 10 * 0.5
+        deadline = time.perf_counter() + 10.0 + audio * 0.05     # 整条链的上限 (58s 长句约 13s)
+        queue, pending, primary_failed = list(self._fallbacks), {}, self._primary is None
+        batch_timeout = getattr(Config, 'asr_batch_timeout', 6.0) + audio * 0.05
+
+        def start_next():
+            k = queue.pop(0)
+            b = BatchASR(ENGINES[k][2], preconnect=False)
+            b.feed(pcm)
+            self._live.append(b)
+            pending[asyncio.ensure_future(b.finish(batch_timeout))] = k
+
+        _chain_running = True
+        try:
+            if self._primary is not None:
+                pending[asyncio.ensure_future(self._primary.finish(timeout))] = self._key
+            else:
+                start_next()
+            while pending:
+                left = deadline - time.perf_counter()
+                if left <= 0:
+                    break
+                done, _ = await asyncio.wait(list(pending), timeout=min(hedge, left) if queue else left,
+                                             return_when=asyncio.FIRST_COMPLETED)
+                for d in done:
+                    k = pending.pop(d)
+                    text = None if d.cancelled() or d.exception() is not None else d.result()
+                    if not text and k == self._key:
+                        primary_failed = True     # 主力报错时它自己已提示过原因, 候补接上后不再提示
+                    if text:
+                        if k != self._key:
+                            logger.info(f'候补 {k} 先出结果, 用它 (主力 {self._key} {"失败" if primary_failed else "太慢"})')
+                            if not primary_failed:
+                                try:
+                                    from core.ui import live_bubble
+                                    live_bubble.notice(f'{vendor(self._key)}太慢，这句用了{vendor(k)}', seconds=2.0)
+                                except Exception:
+                                    pass
+                        return text
+                if queue:                     # 超过 hedge 秒没人出结果, 或有人失败了: 再拉一个候补
+                    start_next()
+            logger.warning(f'主力 {self._key} 与候补 {self._fallbacks} 都没出结果, 用本地识别')
+            return None
+        finally:
+            _chain_running = False
+            for t in pending:
+                t.cancel()
+            self.cancel()
+
+
 class BatchASR:
     """非流式: 录音时只攒 16 kHz 样点, 松开后编成 wav 整段上传. 同步 HTTP 放线程里跑, 不堵事件循环"""
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, preconnect: bool = True):
         self._model, self._chunks, self._done = model, [], False
         import urllib.request
-        host = _HOSTS.get(model)
+        host = _HOSTS.get(model) if preconnect else None     # 候补不预连接: 全局只留一条, 新建会关掉主力正在用的
         self._pre = Preconn(host) if host and not urllib.request.getproxies().get('https') else None
 
     def feed(self, pcm16k: np.ndarray) -> None:
@@ -503,8 +614,8 @@ class BatchASR:
             text, billed = await asyncio.wait_for(asyncio.to_thread(rec, pcm), timeout)
         except Exception as e:
             kind, detail = classify_exc(e)
-            logger.warning(f'在线识别 {self._model} 失败, 用本地识别 ({detail})')
-            alert(kind)
+            logger.warning(f'在线识别 {self._model} 失败, {"换候补" if _chain_running else "用本地识别"} ({detail})')
+            alert(kind, self._model)
             return None
         finally:
             self.cancel()                     # 用完即关 (超时时后台线程还在读, 关掉连接让它立刻结束)

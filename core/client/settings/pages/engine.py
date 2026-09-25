@@ -1,7 +1,7 @@
 # coding: utf-8
 import tkinter as tk
 
-from core.client.settings.widgets import ChoiceGroup, Segmented, Toggle, heading, section, font
+from core.client.settings.widgets import ChoiceGroup, Toggle, heading, section, font
 
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
@@ -21,52 +21,75 @@ POLISH = (('', '关', ''), ('deepseek', 'DeepSeek V4 Flash', '按量 · 37/38'),
           ('kimi', 'Kimi K3', '套餐内 · 36/38'), ('zhipu', 'GLM-5.3 Flash', '套餐内 · 35/38'))
 
 
-def build(parent, pal, ctx):
+def _all(ctx):
+    """[{key, title, detail, group, warn, kind}]: 流式 / 非流式云端, 已安装的本地模型 (key = local:<model_type>)"""
     from core.client.audio import cloud_asr
+    items = []
+    for kind, group in (('stream', '流式'), ('batch', '非流式')):
+        for k, (name, knd, _, env) in cloud_asr.ENGINES.items():
+            if knd == kind:
+                items.append({'key': k, 'title': name, 'detail': CLOUD_DETAIL.get(k, ''), 'group': group, 'kind': kind,
+                              'warn': '' if cloud_asr._has_key(env) else f'缺 {env}'})
+    for k, name, ok in ctx.local_models():
+        if ok:
+            items.append({'key': f'local:{k}', 'title': f'本地 {name}', 'detail': LOCAL_SCORE.get(k, ''), 'group': '本地',
+                          'kind': 'local', 'local': True})
+    return items
+
+
+def _score(item) -> float:
+    try:
+        return float(item.get('detail', '').rsplit(' · ', 1)[-1].split('/')[0])
+    except ValueError:
+        return 0.0
+
+
+def _fallback_items(all_items, primary, saved, loaded=''):
+    """候补列表: 非流式云端 + 本地, 去掉主力. 按保存的顺序; 没排过的补在后面:
+    云端按评分高到低, 本地里当前加载的排第一 (否则一拖动就会把常驻本地模型切成排在前面的那个)"""
+    pool = [i for i in all_items if i['kind'] != 'stream' and i['key'] != primary]
+    rank = {k: n for n, k in enumerate(saved)}
+    return sorted(pool, key=lambda i: (rank.get(i['key'], len(rank)), i['kind'] == 'local',
+                                       i['key'] != f'local:{loaded}', -_score(i)))
+
+
+def build(parent, pal, ctx):
+    from core.client.settings.widgets import Dropdown, SortList
     f = tk.Frame(parent, bg=pal.bg)
     heading(f, pal, '识别引擎', '说完话由谁把声音变成文字').pack(anchor='w', pady=(0, 16))
     st = ctx.state()
-    eng = cloud_asr._ALIASES.get(st['asr_engine'], st['asr_engine'])
-    mode = 'local' if eng == 'local' else 'cloud'
-    last_cloud = [eng if eng != 'local' else 'qwen-stream']   # 从本地切回云端时恢复上次的云端引擎
-    body = tk.Frame(f, bg=pal.bg)
+    items = _all(ctx)
+    primary = st['asr_engine'] if st['asr_engine'] != 'local' else f'local:{ctx.local_model()}'
+    saved = list(st.get('asr_fallback') or [])
+    holder = tk.Frame(f, bg=pal.bg)
 
-    def render(m):
-        for w in body.winfo_children():
+    def sync_local(order, prim):
+        """常驻加载的本地模型 = 主力 (若是本地) 或候补里排最前的本地"""
+        loc = prim if prim.startswith('local:') else next((k for k in order if k.startswith('local:')), '')
+        if loc and loc[6:] != ctx.local_model():
+            ctx.do('set_local_model', loc[6:])
+
+    def save_order(order):
+        ctx.do('set_fallback', order)
+        sync_local(order, primary_box.key)
+
+    def render_list():
+        for w in holder.winfo_children():
             w.destroy()
-        if m == 'local':
-            models = ctx.local_models()
-            items = [{'key': k, 'title': name, 'detail': LOCAL_SCORE.get(k, '') if ok else '未安装', 'disabled': not ok}
-                     for k, name, ok in models]
-            section(body, pal, '本地模型（免费，不联网）').pack(anchor='w', pady=(0, 8))
-            ChoiceGroup(body, pal, items, ctx.local_model(), lambda k: ctx.do('set_local_model', k)).pack(fill='x')
-            tk.Label(body, text='切换本地模型会重启识别服务，约 5–15 秒', font=font(9), bg=pal.bg, fg=pal.muted).pack(anchor='w', pady=(6, 0))
-        else:
-            groups = []                        # 流式 / 非流式两组共用一个选中状态: 选中一组里的, 另一组取消
+        fb = _fallback_items(items, primary_box.key, saved, ctx.local_model())
+        SortList(holder, pal, fb, lambda order: (saved.__setitem__(slice(None), order), save_order(order))).pack(fill='x')
 
-            def pick(k):
-                for g in groups:
-                    g.select(k)
-                last_cloud[0] = k
-                ctx.do('set_engine', k)
-            for kind, label in (('stream', '流式 · 边说边出字'), ('batch', '非流式 · 松开后识别')):
-                items = []
-                for k, (name, knd, _, env) in cloud_asr.ENGINES.items():
-                    if knd == kind:
-                        items.append({'key': k, 'title': name, 'detail': CLOUD_DETAIL.get(k, ''),
-                                      'warn': '' if cloud_asr._has_key(env) else f'缺 {env}'})
-                section(body, pal, label).pack(anchor='w', pady=(0 if kind == 'stream' else 16, 8))
-                g = ChoiceGroup(body, pal, items, last_cloud[0], pick)
-                g.pack(fill='x')
-                groups.append(g)
+    def pick(key):
+        ctx.do('set_engine', 'local' if key.startswith('local:') else key)
+        render_list()
+        sync_local(saved, key)
 
-    def switch(m):                        # 本地 / 云端 就是总开关: 切过去立即生效
-        ctx.do('set_engine', 'local' if m == 'local' else last_cloud[0])
-        render(m)
-
-    Segmented(f, pal, (('local', '本地模型'), ('cloud', '云端模型')), mode, switch).pack(anchor='w')
-    body.pack(fill='x', pady=(16, 0))
-    render(mode)
+    section(f, pal, '主力').pack(anchor='w', pady=(0, 8))
+    primary_box = Dropdown(f, pal, items, primary, pick)
+    primary_box.pack(fill='x')
+    section(f, pal, '候补（拖动排序）').pack(anchor='w', pady=(18, 8))
+    holder.pack(fill='x')
+    render_list()
 
     section(f, pal, '识别后整理').pack(anchor='w', pady=(26, 8))
     items = [{'key': k, 'title': t, 'detail': d} for k, t, d in POLISH]

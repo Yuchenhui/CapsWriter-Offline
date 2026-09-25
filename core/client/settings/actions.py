@@ -33,6 +33,13 @@ def set_engine(key: str) -> bool:
     return key in ENGINES and _set('asr_engine', key, '识别引擎')
 
 
+def set_fallback(order: list) -> bool:
+    """候补顺序 (设置窗口拖拽排序): 非流式云端 key / 'local:<model_type>'"""
+    from core.client.audio.cloud_asr import ENGINES
+    order = [k for k in order if k in ENGINES or k.startswith('local:')]
+    return _set('asr_fallback', order, '候补顺序')
+
+
 def set_polish(pid: str) -> bool:
     from core.tools.polish_providers import PROVIDERS
     return (pid == '' or pid in PROVIDERS) and _set('polish', pid, '二次整理')

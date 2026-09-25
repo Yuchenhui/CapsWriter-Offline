@@ -201,3 +201,138 @@ class BarChart(tk.Canvas):
                 self.create_text(x0 + bw / 2, y0 - 9, text=self.fmt(v), fill=p.fg, font=font(8))
             if i % 2 == 0 or n <= 7:
                 self.create_text(x0 + bw / 2, h - 9, text=label, fill=p.muted, font=font(8))
+
+
+class Dropdown(tk.Frame):
+    """下拉选择: 显示当前项 (标题 + 右侧说明 + ▾), 点开弹出列表. items: [{'key','title','detail','group','warn'}]; on_pick(key)"""
+
+    def __init__(self, parent, pal, items, selected, on_pick):
+        super().__init__(parent, bg=pal.surface, highlightthickness=1, highlightbackground=pal.border, cursor='hand2')
+        self.pal, self.items, self.on_pick, self.key, self.pop = pal, items, on_pick, selected, None
+        self.title = tk.Label(self, font=font(11), bg=pal.surface, fg=pal.fg, anchor='w')
+        self.title.pack(side='left', padx=(12, 0), pady=9)
+        tk.Label(self, text='▾', font=font(11), bg=pal.surface, fg=pal.muted).pack(side='right', padx=(6, 12))
+        self.detail = tk.Label(self, font=font(10), bg=pal.surface, fg=pal.muted)
+        self.detail.pack(side='right')
+        for w in (self, *self.winfo_children()):
+            w.bind('<Button-1>', lambda e: self.toggle())
+        self.show(selected)
+
+    def show(self, key):
+        it = next((i for i in self.items if i['key'] == key), None)
+        self.key = key
+        self.title.configure(text=it['title'] if it else '')
+        self.detail.configure(text=it.get('detail', '') if it else '')
+
+    def toggle(self):
+        if self.pop is not None:
+            return self.close()
+        p = self.pal
+        self.pop = pop = tk.Toplevel(self)
+        pop.overrideredirect(True)
+        pop.attributes('-topmost', True)
+        box = tk.Frame(pop, bg=p.surface, highlightthickness=1, highlightbackground=p.border)
+        box.pack(fill='both', expand=True)
+        group = None
+        for it in self.items:
+            if it.get('group') != group:
+                group = it.get('group')
+                tk.Label(box, text=group, font=font(9, True), bg=p.surface, fg=p.muted, anchor='w').pack(fill='x', padx=12, pady=(8, 2))
+            on = it['key'] == self.key
+            bg = p.hover if on else p.surface
+            row = tk.Frame(box, bg=bg, cursor='hand2')
+            row.pack(fill='x')
+            tk.Label(row, text=it['title'], font=font(11), bg=bg, fg=p.fg, anchor='w').pack(side='left', padx=12, pady=6)
+            if it.get('warn'):
+                tk.Label(row, text=it['warn'], font=font(9), bg=bg, fg=p.danger).pack(side='left')
+            tk.Label(row, text=it.get('detail', ''), font=font(10), bg=bg, fg=p.muted).pack(side='right', padx=12)
+            for w in (row, *row.winfo_children()):
+                w.bind('<Button-1>', lambda e, k=it['key']: self._pick(k))
+                w.bind('<Enter>', lambda e, r=row, o=on: [c.configure(bg=p.hover) for c in (r, *r.winfo_children())])
+                w.bind('<Leave>', lambda e, r=row, o=on: [c.configure(bg=p.hover if o else p.surface) for c in (r, *r.winfo_children())])
+        self.update_idletasks()
+        pop.geometry(f'{self.winfo_width()}x{box.winfo_reqheight()}+{self.winfo_rootx()}+{self.winfo_rooty() + self.winfo_height() + 2}')
+        pop.bind('<FocusOut>', lambda e: self.after(80, self.close))
+        pop.bind('<Escape>', lambda e: self.close())
+        pop.focus_force()
+
+    def close(self):
+        if self.pop is not None:
+            self.pop.destroy()
+            self.pop = None
+
+    def _pick(self, key):
+        self.close()
+        if key != self.key:
+            self.show(key)
+            self.on_pick(key)
+
+
+class SortList(tk.Frame):
+    """拖拽排序列表. items: [{'key','title','detail','local'}]; 本地模型行用另一种底色;
+    第一个本地之后的行变淡 (轮不到). 松手后 on_change([key...])"""
+
+    def __init__(self, parent, pal, items, on_change):
+        super().__init__(parent, bg=pal.surface, highlightthickness=1, highlightbackground=pal.border)
+        self.pal, self.on_change, self.items = pal, on_change, list(items)
+        from core.client.settings.palette import mix
+        self.local_bg = mix(pal.surface, pal.accent, 0.10)
+        self.rows, self._drag = {}, None
+        for it in self.items:
+            self.rows[it['key']] = self._row(it)
+        self._layout()
+
+    def _row(self, it):
+        p = self.pal
+        bg = self.local_bg if it.get('local') else p.surface
+        r = tk.Frame(self, bg=bg, cursor='fleur')
+        r.num = tk.Label(r, font=font(10), bg=bg, fg=p.muted, width=2, anchor='e')
+        r.num.pack(side='left', padx=(10, 6), pady=7)
+        r.title = tk.Label(r, text=it['title'], font=font(11), bg=bg, fg=p.fg, anchor='w')
+        r.title.pack(side='left')
+        tk.Label(r, text='≡', font=font(12), bg=bg, fg=p.muted).pack(side='right', padx=(4, 12))
+        r.detail = tk.Label(r, text=it.get('detail', ''), font=font(10), bg=bg, fg=p.muted)
+        r.detail.pack(side='right')
+        for w in (r, *r.winfo_children()):
+            w.bind('<ButtonPress-1>', lambda e, k=it['key']: self._start(k))
+            w.bind('<B1-Motion>', self._move)
+            w.bind('<ButtonRelease-1>', self._end)
+        return r
+
+    def _layout(self):
+        seen_local = False
+        for w in self.pack_slaves():
+            w.pack_forget()
+        for i, it in enumerate(self.items):
+            r = self.rows[it['key']]
+            r.pack(fill='x')
+            r.num.configure(text=str(i + 1))
+            unused = seen_local                  # 第一个本地之后: 轮不到, 字变淡
+            r.title.configure(fg=self.pal.muted if unused else self.pal.fg)
+            seen_local = seen_local or it.get('local')
+
+    def order(self) -> list:
+        return [it['key'] for it in self.items]
+
+    def _start(self, key):
+        self._drag = key
+        self.rows[key].configure(highlightthickness=1, highlightbackground=self.pal.accent)
+
+    def _move(self, e):
+        if self._drag is None:
+            return
+        y = e.y_root - self.winfo_rooty()
+        tops = [self.rows[it['key']].winfo_y() + self.rows[it['key']].winfo_height() / 2 for it in self.items]
+        idx = sum(1 for t in tops if y > t)
+        cur = next(i for i, it in enumerate(self.items) if it['key'] == self._drag)
+        idx = min(max(idx - (1 if idx > cur else 0), 0), len(self.items) - 1)
+        if idx != cur:
+            self.items.insert(idx, self.items.pop(cur))
+            self._layout()
+
+    def _end(self, _e):
+        if self._drag is None:
+            return
+        self.rows[self._drag].configure(highlightthickness=0)
+        self._drag = None
+        self.on_change(self.order())
