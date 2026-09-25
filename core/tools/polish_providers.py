@@ -4,7 +4,8 @@
 加服务商: 在 PROVIDERS 里加一项. 要求 OpenAI 兼容的 /chat/completions 接口, 且能关掉"思考" (否则一句要等好几秒).
 key 只从环境变量读; 某些服务商允许回退读它自家命令行工具的配置文件 (key_file, 只读, 不复制到别处).
 实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 0.7-2.3s; MiMo V2.6 Flash 中位 0.74s 但 3/8 次 >3s (最慢 13s);
-MiniMax M2.7 关不掉思考 3-6s, 不收录. Kimi K2.8 (2026-09-26, 会员地址) 评测 32/38 中位 1.2s 最慢 4.6s (DeepSeek 37/38 0.85s).
+MiniMax M2.7 关不掉思考 3-6s, 不收录. 2026-09-26 评测 (DeepSeek V4 Flash 37/38 中位 0.85s): Kimi K3 36/38 1.55s (K2.8 32/38); GLM-5.3 Flash 35/38 1.25s;
+DeepSeek V4 Pro 36/38 1.6s 且更贵, 不收录.
 """
 import json
 import os
@@ -29,10 +30,10 @@ PROVIDERS = {
         'model': 'mimo-v2.6-flash',
         'key_env': 'MIMO_API_KEY',
     },
-    'kimi': {                        # Kimi Code 会员订阅地址 (不是 api.moonshot.cn 按量计费); 关思考后 1.4-2s
-        'name': 'Kimi K2.8',
+    'kimi': {                        # Kimi Code 会员订阅地址 (不是 api.moonshot.cn 按量计费); 关思考后 1.5s
+        'name': 'Kimi K3',
         'url': 'https://api.kimi.com/coding/v1/chat/completions',
-        'model': 'kimi-for-coding',
+        'model': 'k3',                   # 2026-09-26 评测 K3 36/38 中位 1.55s, K2.8 (kimi-for-coding) 32/38
         'key_env': 'KIMI_API_KEY',
         'body': {'temperature': 0.6},    # 该模型只接受 0.6, 传 0 报 400
     },

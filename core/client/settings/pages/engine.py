@@ -12,7 +12,7 @@ CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 松开后 0.2 秒 · 边说�
                 'minimax-batch': '¥2.50/小时 · 2 秒 · 声音小会识别为空'}
 POLISH = (('', '关', '松开后约 0.4 秒出字'), ('deepseek', 'DeepSeek V4 Flash', '约 +0.6 秒'),
           ('minimax', 'MiniMax M3', '约 +1.1 秒'), ('mimo', 'MiMo V2.6 Flash', '约 +0.7 秒，偶尔超时'),
-          ('kimi', 'Kimi K2.8', '约 +1.2 秒，评测 32/38'), ('zhipu', 'GLM-5.3 Flash', '约 +1.3 秒，评测 35/38'))
+          ('kimi', 'Kimi K3', '约 +1.5 秒，评测 36/38'), ('zhipu', 'GLM-5.3 Flash', '约 +1.3 秒，评测 35/38'))
 
 
 def build(parent, pal, ctx):
