@@ -5,7 +5,7 @@ from core.client.settings.context import WORDLISTS
 from core.client.settings.widgets import Button, heading, font
 
 TITLE = '词库'
-MONO = ('Cascadia Mono', 10)
+MONO = ('Cascadia Mono', -13)   # 像素字号, 不受 tk scaling 影响
 
 
 def build(parent, pal, ctx):

@@ -129,7 +129,11 @@ if __name__ == '__main__':
     ap.add_argument('--shots', default='')
     a = ap.parse_args()
     from core.client.settings.context import Context
-    sw = open_settings(None, Context(a.base, readonly=True))
+    root = tk.Tk()                                      # 同客户端: 隐藏根窗口 + tk scaling 2 (toast_constants)
+    root.withdraw()
+    root.tk.call('tk', 'scaling', 2)
+    sw = open_settings(root, Context(a.base, readonly=True))
+    sw.win.bind('<Destroy>', lambda e: e.widget is sw.win and root.after(0, root.destroy), add='+')
     if a.shots:                                         # 逐页截图后退出 (PrintWindow: 被别的窗口挡住也能截, 不抢前台)
         from PIL import Image
         win = sw.win
@@ -158,4 +162,4 @@ if __name__ == '__main__':
                 win.destroy()
         import ctypes.wintypes
         win.after(600, shoot)
-    sw.win.mainloop()
+    root.mainloop()

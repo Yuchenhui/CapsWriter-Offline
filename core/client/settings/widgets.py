@@ -6,7 +6,9 @@ FONT = 'Microsoft YaHei UI'
 
 
 def font(size: int, bold: bool = False):
-    return (FONT, size, 'bold') if bold else (FONT, size)
+    """size 按 pt 写 (设计稿习惯), 转成像素负字号: 不受根窗口 tk scaling (=2) 影响, 与预览一致"""
+    px = -round(size * 96 / 72)
+    return (FONT, px, 'bold') if bold else (FONT, px)
 
 
 class Card(tk.Frame):
