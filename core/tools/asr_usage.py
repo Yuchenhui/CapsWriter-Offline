@@ -20,10 +20,12 @@ _lock = threading.Lock()
 #   ('token', 上行 元/百万token, 下行 元/百万token)   ('sec', 元/秒)
 # qwen-audio-3.1-asr-flash-streaming: 百炼中文文档 上行 6 / 下行 4.5; 实测音频约 16~21 token/秒
 # qwen3-asr-flash: 百炼中文文档 0.00022 元/秒 (音频时长)
-# 套餐内不计钱 (不在表里 = 0): asr-1.0 (MiniMax Token Plan), mimo-v2.5-asr, glm-asr-2512
+# 套餐内不计钱 (不在表里 = 0): asr-1.0 (MiniMax Token Plan), mimo-v2.5-asr
+# glm-asr-2512: 智谱官方 0.06 元/分钟, 按量扣账户余额 (不在 GLM Coding Plan 内; 2026-09-26 余额用完报 1113)
 PRICES = {
     'qwen-audio-3.1-asr-flash-streaming': ('token', 6.0, 4.5),
     'qwen3-asr-flash': ('sec', 0.00022),
+    'glm-asr-2512': ('sec', 0.06 / 60),
     'doubao-seed-asr-2.0': ('sec', 1 / 3600),        # 火山豆包流式 2.0 小时版 1 元/小时 (试用额度用完后)
     'doubao-seed-asr-2.0-nostream': ('sec', 1 / 3600),   # 同一资源的 nostream 接口, 同价
 }

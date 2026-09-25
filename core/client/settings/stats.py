@@ -12,7 +12,7 @@ NAMES = {
     'doubao-seed-asr-2.0-nostream': '豆包 Seed-ASR 2.0（非流式）',
     'asr-1.0': 'MiniMax asr-1.0（套餐）',
     'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
-    'glm-asr-2512': '智谱 glm-asr-2512（套餐）',
+    'glm-asr-2512': '智谱 glm-asr-2512',
 }
 POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash', 'kimi': 'Kimi K3', 'zhipu': 'GLM-5.3 Flash'}
 LOCAL_NAMES = {'sensevoice': 'SenseVoice', 'fun_asr_nano': 'Fun-ASR-Nano', 'qwen_asr': 'Qwen3-ASR'}

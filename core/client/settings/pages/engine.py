@@ -9,7 +9,7 @@ CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 松开后 0.2 秒 · 边说�
                 'doubao-stream': '¥1/小时（有试用额度）· 松开后 0.9 秒',
                 'doubao-batch': '¥1/小时（与流式共用额度）· 1 秒 · 比豆包流式准',
                 'qwen-batch': '¥0.79/小时 · 0.5 秒',
-                'zhipu-batch': '套餐内 · 0.7 秒 · 用术语表作热词',
+                'zhipu-batch': '¥3.6/小时（按量，不在 Coding Plan）· 0.5 秒',
                 'mimo-batch': '套餐内 · 1.2 秒',
                 'minimax-batch': '套餐内 · 1.5–2 秒 · 声音小会识别为空'}
 POLISH = (('', '关', '松开后约 0.4 秒出字'), ('deepseek', 'DeepSeek V4 Flash', '约 +0.6 秒'),

@@ -383,7 +383,7 @@ class BatchASR:
                 except OSError:
                     pass
             return r.get('text', ''), r.get('duration', 0)
-        if self._model == 'glm-asr-2512':       # 智谱: GLM Coding Plan 地址 (套餐内), 术语表作热词 (2026-09-26 实测加了明显更准)
+        if self._model == 'glm-asr-2512':       # 智谱: 按量计费 0.06 元/分钟, 不在 Coding Plan 内 (走 coding 地址也扣余额); 术语表作热词 (2026-09-26 实测加了明显更准)
             from core.tools.polish_providers import api_key
             from core.tools.terms import load_terms
             b = uuid.uuid4().hex
