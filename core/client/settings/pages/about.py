@@ -9,7 +9,8 @@ TITLE = '关于'
 LINKS = (('我的 fork', 'https://github.com/Yuchenhui/CapsWriter-Offline'),
          ('上游原项目', 'https://github.com/HaujetZhao/CapsWriter-Offline'))
 KEYS = (('千问 / 百炼', 'DASHSCOPE_API_KEY'), ('DeepSeek', 'DEEPSEEK_API_KEY'), ('MiniMax', 'MINIMAX_API_KEY'), ('MiMo', 'MIMO_API_KEY'),
-        ('Kimi', 'KIMI_API_KEY'), ('智谱', 'ZHIPU_API_KEY'))
+        ('Kimi', 'KIMI_API_KEY'), ('智谱', 'ZHIPU_API_KEY'),
+        ('豆包', 'VOLC_ASR_API_KEY'))
 
 
 def build(parent, pal, ctx):

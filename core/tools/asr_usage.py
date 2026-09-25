@@ -24,6 +24,7 @@ _lock = threading.Lock()
 PRICES = {
     'qwen-audio-3.1-asr-flash-streaming': ('token', 6.0, 4.5),
     'qwen3-asr-flash': ('sec', 0.00022),
+    'doubao-seed-asr-2.0': ('sec', 1 / 3600),        # 火山豆包流式 2.0 小时版 1 元/小时 (试用额度用完后)
 }
 
 

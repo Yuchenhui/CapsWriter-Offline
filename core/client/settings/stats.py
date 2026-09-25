@@ -8,6 +8,7 @@ from core.tools import polish_usage as pu
 NAMES = {
     'qwen-audio-3.1-asr-flash-streaming': '千问 qwen-audio-3.1（流式）',
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
+    'doubao-seed-asr-2.0': '豆包 Seed-ASR 2.0',
     'asr-1.0': 'MiniMax asr-1.0（套餐）',
     'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
     'glm-asr-2512': '智谱 glm-asr-2512（套餐）',

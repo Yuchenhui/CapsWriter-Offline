@@ -34,6 +34,7 @@ _CONNECT_TIMEOUT = 2.0
 # 托盘「识别」的选项: key -> (菜单名, 类型, 模型, 需要的 key 环境变量). 价格见 core/tools/asr_usage.PRICES
 ENGINES = {
     'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
+    'doubao-stream': ('豆包 Seed-ASR 2.0（实时出字）', 'stream', 'doubao-seed-asr-2.0', 'VOLC_ASR_API_KEY'),
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
@@ -71,7 +72,9 @@ def create(on_partial: Callable[[str], None]):
     if not available():
         return None
     _, kind, model, _ = ENGINES[engine_key()]
-    return CloudStream(on_partial, model) if kind == 'stream' else BatchASR(model)
+    if kind == 'batch':
+        return BatchASR(model)
+    return (VolcStream if model.startswith('doubao') else CloudStream)(on_partial, model)
 
 
 def finish_timeout() -> float:
@@ -118,8 +121,7 @@ class CloudStream:
             await asyncio.wait_for(self._started.wait(), timeout)
             if self._failed:
                 return None
-            await self._ws.send(json.dumps({'header': {'action': 'finish-task', 'task_id': self._tid, 'streaming': 'duplex'},
-                                            'payload': {'input': {}}}))
+            await self._send_finish()
             await asyncio.wait_for(self._finished.wait(), max(0.05, timeout - (time.perf_counter() - t)))
         except Exception as e:
             logger.warning(f'在线识别未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
@@ -158,9 +160,16 @@ class CloudStream:
 
     async def _send(self, data: bytes):
         try:
-            await self._ws.send(data)
+            await self._ws.send(self._pack(data))
         except Exception:
             pass
+
+    def _pack(self, data: bytes) -> bytes:
+        return data
+
+    async def _send_finish(self):
+        await self._ws.send(json.dumps({'header': {'action': 'finish-task', 'task_id': self._tid, 'streaming': 'duplex'},
+                                        'payload': {'input': {}}}))
 
     async def _run(self):
         from websockets.asyncio.client import connect
@@ -212,6 +221,90 @@ class CloudStream:
             logger.warning(f'在线识别连接失败, 用本地识别: {type(e).__name__}: {e}')
         self._failed = True
         self._started.set()      # 唤醒 finish() 的等待, 让它立刻走兜底
+        self._finished.set()
+
+
+class VolcStream(CloudStream):
+    """豆包流式语音识别 2.0 (火山引擎 bigmodel_async 二进制协议). 开二遍识别: 边说边出字, 每个分句停顿后用非流式模型重识别.
+    2026-09-26 实测同一段 20s 录音: 刷新中位 0.42s, 松开后 0.85s 出最终结果; 准确度不如千问 (PostgreSQL -> Postgres Circle)."""
+    URL = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async'
+    RESOURCE = 'volc.seedasr.sauc.duration'      # 流式 2.0 小时版; 控制台里的实例名不用管
+    CHUNK = 3200                                  # 攒够 200ms 再发 (官方: 双向流式 200ms 一包性能最好)
+
+    def __init__(self, on_partial, model='doubao-seed-asr-2.0'):
+        self._buf = []
+        super().__init__(on_partial, model)
+
+    def feed(self, pcm16k: np.ndarray) -> None:
+        self._buf.append(pcm16k)
+        if sum(len(x) for x in self._buf) >= self.CHUNK:
+            super().feed(np.concatenate(self._buf))
+            self._buf = []
+
+    @staticmethod
+    def _frame(mtype: int, flags: int, serial: int, payload: bytes) -> bytes:
+        import gzip
+        body = gzip.compress(payload)
+        return bytes([0x11, (mtype << 4) | flags, (serial << 4) | 1, 0]) + len(body).to_bytes(4, 'big') + body
+
+    def _pack(self, data: bytes) -> bytes:
+        return self._frame(0b0010, 0, 0, data)
+
+    async def _send_finish(self):
+        rest, self._buf = self._buf, []
+        tail = (np.clip(np.concatenate(rest), -1, 1) * 32767).astype(np.int16).tobytes() if rest else b''
+        self._samples += len(tail) // 2
+        await self._ws.send(self._frame(0b0010, 0b0010, 0, tail))       # 最后一包 (可为空)
+
+    async def _run(self):
+        import gzip
+        from websockets.asyncio.client import connect
+        from core.tools.polish_providers import env_key
+        from core.tools.terms import load_terms
+        try:
+            self._ws = await asyncio.wait_for(connect(self.URL, additional_headers={
+                'X-Api-Key': env_key('VOLC_ASR_API_KEY'), 'X-Api-Resource-Id': self.RESOURCE,
+                'X-Api-Connect-Id': self._tid}, max_size=2 ** 22), _CONNECT_TIMEOUT)
+            req = {'user': {'uid': 'capswriter'}, 'audio': {'format': 'pcm', 'rate': 16000, 'bits': 16, 'channel': 1},
+                   'request': {'model_name': 'bigmodel', 'enable_itn': True, 'enable_punc': True,
+                               'enable_nonstream': True, 'result_type': 'full'}}
+            words = [w.strip() for w in load_terms().split(',') if w.strip()][:30]     # 双向流式热词上限 100 token
+            if words:
+                req['request']['corpus'] = {'context': json.dumps({'hotwords': [{'word': w} for w in words]}, ensure_ascii=False)}
+            await self._ws.send(self._frame(0b0001, 0, 0b0001, json.dumps(req).encode()))
+            logger.debug(f'豆包在线识别已连接 {time.perf_counter() - self._t0:.2f}s '
+                         f'logid={self._ws.response.headers.get("X-Tt-Logid")}, 补发 {len(self._pending)} 块')
+            for d in self._pending:
+                await self._ws.send(self._pack(d))
+            self._pending.clear()
+            self._started.set()
+            async for raw in self._ws:
+                mtype, flags, comp = raw[1] >> 4, raw[1] & 0x0F, raw[2] & 0x0F
+                if mtype == 0b1111:                               # 错误帧: 错误码 + 长度 + 消息
+                    msg = raw[12:12 + int.from_bytes(raw[8:12], 'big')]
+                    logger.warning(f'豆包在线识别失败: {int.from_bytes(raw[4:8], "big")} '
+                                   f'{(gzip.decompress(msg) if comp else msg).decode("utf-8", "replace")[:200]}')
+                    break
+                p = 8 if flags & 1 else 4                          # 带 sequence 时多 4 字节
+                body = raw[p + 4:p + 4 + int.from_bytes(raw[p:p + 4], 'big')]
+                res = json.loads((gzip.decompress(body) if comp else body) or b'{}')
+                text = (res.get('result') or {}).get('text', '')
+                if text and text != self._shown:
+                    self._current = self._shown = text
+                    try:
+                        self._on_partial(text)
+                    except Exception as e:
+                        logger.debug(f'显示中间结果失败: {e}')
+                if flags & 0b0010:                                 # 最后一包的响应 = 最终结果
+                    self._current = text or self._current
+                    self._finished.set()
+                    return
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.warning(f'豆包在线识别连接失败, 用本地识别: {type(e).__name__}: {e}')
+        self._failed = True
+        self._started.set()
         self._finished.set()
 
 

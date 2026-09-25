@@ -6,6 +6,7 @@ from core.client.settings.widgets import ChoiceGroup, Segmented, Toggle, heading
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
 CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 松开后 0.2 秒 · 边说边出字',
+                'doubao-stream': '¥1/小时（有试用额度）· 松开后 0.9 秒',
                 'qwen-batch': '¥0.79/小时 · 0.5 秒',
                 'zhipu-batch': '套餐内 · 0.7 秒 · 用术语表作热词',
                 'mimo-batch': '套餐内 · 1.2 秒',
