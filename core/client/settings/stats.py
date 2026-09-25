@@ -11,7 +11,7 @@ NAMES = {
     'asr-1.0': 'MiniMax asr-1.0',
     'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
 }
-POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash'}
+POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash', 'kimi': 'Kimi K2.8'}
 LOCAL_NAMES = {'sensevoice': 'SenseVoice', 'fun_asr_nano': 'Fun-ASR-Nano', 'qwen_asr': 'Qwen3-ASR'}
 
 
