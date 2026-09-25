@@ -166,19 +166,29 @@ class TrayManager:
 
     @staticmethod
     def _asr_items():
-        """托盘「识别」: 千问在线 (流式) / 本地, 单选, 下一句起生效, 存 user_state.json"""
+        """托盘「识别」: 在线费用 + 引擎单选 (按 流式 / 非流式 分组), 下一句起生效, 存 user_state.json"""
+        from core.client.audio import cloud_asr
+        from core.tools import asr_usage as au
+
         def pick(v):
             def action():
                 Config.asr_engine = v
                 user_state.save()
                 logger.info(f'识别引擎: {v}')
             return action
-        from core.tools import asr_usage as au
+
+        def option(k):
+            label, _, _, env = cloud_asr.ENGINES[k]
+            if env and not cloud_asr._has_key(env):
+                label += f'（缺 {env}）'
+            return label, pick(k), lambda k=k: cloud_asr.engine_key() == k
+
         data, noop = au.load(), (lambda: None)
         stats = [(f'{name}  {au.line(au.period(data, pre))}', noop, noop)
                  for name, pre in (('今日', time.strftime('%Y-%m-%d')), ('本月', time.strftime('%Y-%m')), ('累计', ''))]
-        return stats + [None] + [(label, pick(v), lambda v=v: Config.asr_engine == v)
-                                 for label, v in (('千问在线（流式，实时出字）', 'cloud'), ('本地 Qwen3-ASR', 'local'))]
+        group = lambda kinds: [option(k) for k, e in cloud_asr.ENGINES.items() if e[1] in kinds]   # noqa: E731
+        return (stats + [None, ('流式 · 边说边出字', noop, noop)] + group(('stream',))
+                + [None, ('非流式 · 松开后识别', noop, noop)] + group(('batch', 'local')))
 
     @staticmethod
     def _asr_label(_item=None) -> str:

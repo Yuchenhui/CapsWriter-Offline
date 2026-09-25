@@ -124,9 +124,10 @@ class AudioRecorder:
                     self._start_time = task['time']
                     self._window = _window_desc()   # 本地改: 此时鼠标下窗口已切到前台, 就是要粘贴的目标
                     from core.client.audio import cloud_asr
-                    if cloud_asr.available():
-                        from core.client.ui.recording_toast import preview_active
-                        self._cloud, self._cdec = cloud_asr.CloudStream(preview_active), Decimator3()
+                    from core.client.ui.recording_toast import preview_active
+                    self._cloud = cloud_asr.create(preview_active)   # 在线识别 (流式 / 非流式, 托盘「识别」选); 本地为 None
+                    if self._cloud is not None:
+                        self._cdec = Decimator3()
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
@@ -255,7 +256,8 @@ class AudioRecorder:
                     # 在线识别结果 (本地改 2026-09-25): 拿到了服务端就跳过本地识别; 超时 / 失败为空, 服务端本地识别兜底
                     cloud_text = ''
                     if self._cloud is not None:
-                        cloud_text = await self._cloud.finish(getattr(Config, 'asr_cloud_timeout', 1.5)) or ''
+                        from core.client.audio import cloud_asr
+                        cloud_text = await self._cloud.finish(cloud_asr.finish_timeout()) or ''
                         self._cloud = None
 
                     # 告诉服务端音频片段结束了

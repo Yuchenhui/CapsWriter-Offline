@@ -296,7 +296,7 @@ class ResultProcessor:
             self.state.set_output_text(text)
             broadcast_output_udp(text)
         carry_punc.remember('' if auto_enter else TextOutput.last_stripped)   # 自动回车 = 已发出, 下一句是新消息
-        if Config.polish or Config.asr_engine == 'cloud':   # 本句的整理 / 在线识别用量已记账, 刷新托盘文字
+        if Config.polish or Config.asr_engine != 'local':   # 本句的整理 / 在线识别用量已记账, 刷新托盘文字
             from core.ui.tray import refresh_menu
             refresh_menu()
 

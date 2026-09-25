@@ -1,6 +1,9 @@
 # coding: utf-8
 """
-千问在线流式识别 (本地改 2026-09-25)
+在线识别 (本地改 2026-09-25): 流式 (CloudStream, 边说边出字) 与非流式 (BatchASR, 松开后整段上传)
+两者接口相同: feed() 录音块 -> finish(timeout) 取文字 / cancel(); 由 create() 按托盘「识别」的选择创建, 本地返回 None.
+
+流式 - 千问:
 
 按住快捷键期间把 16 kHz 音频实时推给百炼 qwen-audio-3.1-asr-flash-streaming (DashScope run-task 协议),
 中间结果回调给界面显示; 松开后取最终结果交给服务端 (AudioMessage.text), 服务端据此跳过本地识别.
@@ -12,6 +15,7 @@ qwen3-asr-flash-realtime 固定 2s 刷新一次, 太卡, 不用.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import time
@@ -27,15 +31,57 @@ URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
 _CONNECT_TIMEOUT = 2.0
 
 
+# 托盘「识别」的选项: key -> (菜单名, 类型, 模型, 需要的 key 环境变量). 价格见 core/tools/asr_usage.PRICES
+ENGINES = {
+    'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
+    'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
+    'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
+    'local': ('本地（托盘「模型」里选）', 'local', '', ''),
+}
+_ALIASES = {'cloud': 'qwen-stream'}   # 旧配置值
+
+
+def engine_key() -> str:
+    k = getattr(Config, 'asr_engine', 'local')
+    k = _ALIASES.get(k, k)
+    return k if k in ENGINES else 'local'
+
+
+def _has_key(env: str) -> bool:
+    if env == 'MINIMAX_API_KEY':      # MiniMax 另认 mmx-cli 的配置文件 (同二次整理)
+        from core.tools.polish_providers import api_key
+        try:
+            return bool(api_key('minimax'))
+        except RuntimeError:
+            return False
+    return bool(os.environ.get(env))
+
+
 def available() -> bool:
-    return getattr(Config, 'asr_engine', 'local') == 'cloud' and bool(os.environ.get('DASHSCOPE_API_KEY'))
+    _, kind, _, env = ENGINES[engine_key()]
+    return kind != 'local' and _has_key(env)
+
+
+def create(on_partial: Callable[[str], None]):
+    """按当前选择建一句话的识别实例; 本地 / 没 key 返回 None"""
+    if not available():
+        return None
+    _, kind, model, _ = ENGINES[engine_key()]
+    return CloudStream(on_partial, model) if kind == 'stream' else BatchASR(model)
+
+
+def finish_timeout() -> float:
+    """松开后等在线结果的上限: 流式只等收尾 (快); 非流式要上传 + 整段识别 (55s 录音实测 1.7~2.1s)"""
+    if ENGINES[engine_key()][1] == 'stream':
+        return getattr(Config, 'asr_cloud_timeout', 1.5)
+    return getattr(Config, 'asr_batch_timeout', 6.0)
 
 
 class CloudStream:
     """一句话一个实例: start() -> feed() ... -> finish() / cancel()"""
 
-    def __init__(self, on_partial: Callable[[str], None]):
-        self._on_partial = on_partial
+    def __init__(self, on_partial: Callable[[str], None], model: str = 'qwen-audio-3.1-asr-flash-streaming'):
+        self._on_partial, self._model = on_partial, model
         self._ws = None
         self._tid = uuid.uuid4().hex
         self._pending: list[bytes] = []       # 连上之前录到的音频
@@ -87,7 +133,7 @@ class CloudStream:
             self._recorded = True
             try:
                 from core.tools import asr_usage
-                asr_usage.add(getattr(Config, 'asr_cloud_model', ''), self._usage, self._samples / 16000)
+                asr_usage.add(self._model, self._usage, self._samples / 16000)
             except Exception as e:
                 logger.debug(f'记录在线识别用量失败: {e}')
         self._failed = True
@@ -120,7 +166,7 @@ class CloudStream:
             await self._ws.send(json.dumps({
                 'header': {'action': 'run-task', 'task_id': self._tid, 'streaming': 'duplex'},
                 'payload': {'task_group': 'audio', 'task': 'asr', 'function': 'recognition',
-                            'model': getattr(Config, 'asr_cloud_model', 'qwen-audio-3.1-asr-flash-streaming'),
+                            'model': self._model,
                             'parameters': {'format': 'pcm', 'sample_rate': 16000}, 'input': {}}}))
             async for raw in self._ws:
                 if isinstance(raw, bytes):
@@ -165,20 +211,94 @@ class CloudStream:
         self._finished.set()
 
 
-if __name__ == '__main__':   # 自检: python -m core.client.audio.cloud_asr <16k 单声道 wav>  (按真实语速回放, 真调接口)
+class BatchASR:
+    """非流式: 录音时只攒 16 kHz 样点, 松开后编成 wav 整段上传. 同步 HTTP 放线程里跑, 不堵事件循环"""
+
+    def __init__(self, model: str):
+        self._model, self._chunks, self._done = model, [], False
+
+    def feed(self, pcm16k: np.ndarray) -> None:
+        if not self._done:
+            self._chunks.append((np.clip(pcm16k, -1, 1) * 32767).astype(np.int16))
+
+    def cancel(self) -> None:
+        self._done = True
+
+    async def finish(self, timeout: float) -> Optional[str]:
+        if self._done or not self._chunks:
+            return None
+        self._done = True
+        pcm = np.concatenate(self._chunks)
+        t = time.perf_counter()
+        try:
+            text, billed = await asyncio.wait_for(asyncio.to_thread(self._recognize, _wav(pcm)), timeout)
+        except Exception as e:
+            logger.warning(f'在线识别 {self._model} 未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
+            return None
+        logger.info(f'在线识别 {self._model} 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
+        try:
+            from core.tools import asr_usage
+            asr_usage.add(self._model, {'seconds': billed}, len(pcm) / 16000)
+        except Exception as e:
+            logger.debug(f'记录在线识别用量失败: {e}')
+        return text
+
+    def _recognize(self, wav: bytes) -> tuple:
+        """-> (文字, 计费秒数)"""
+        import urllib.request
+        if self._model == 'asr-1.0':            # MiniMax: multipart 上传, 不支持上下文
+            from core.tools.polish_providers import api_key
+            b = uuid.uuid4().hex
+            head = lambda name, extra='': f'--{b}\r\nContent-Disposition: form-data; name="{name}"{extra}\r\n'   # noqa: E731
+            body = b''.join([(head('model') + '\r\nasr-1.0\r\n').encode(),
+                             (head('response_format') + '\r\njson\r\n').encode(),
+                             (head('file', '; filename="a.wav"') + 'Content-Type: audio/wav\r\n\r\n').encode(),
+                             wav, f'\r\n--{b}--\r\n'.encode()])
+            req = urllib.request.Request('https://api.minimaxi.com/v1/speech_to_text', body,
+                                         {'Authorization': 'Bearer ' + api_key('minimax'),
+                                          'Content-Type': f'multipart/form-data; boundary={b}'})
+            r = json.load(urllib.request.urlopen(req, timeout=30))
+            return r.get('text', ''), r.get('duration', 0)
+        from core.tools.terms import load_terms  # 千问 qwen3-asr-flash: OpenAI 兼容, 术语表放 system 作上下文
+        messages = [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {
+            'data': 'data:audio/wav;base64,' + base64.b64encode(wav).decode()}}]}]
+        terms = load_terms()
+        if terms:
+            messages.insert(0, {'role': 'system', 'content': [{'text': terms}]})
+        req = urllib.request.Request('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+                                     json.dumps({'model': self._model, 'messages': messages, 'stream': False,
+                                                 'asr_options': {'enable_itn': True}}).encode(),
+                                     {'Authorization': 'Bearer ' + os.environ['DASHSCOPE_API_KEY'],
+                                      'Content-Type': 'application/json'})
+        r = json.load(urllib.request.urlopen(req, timeout=30))
+        return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
+
+
+def _wav(pcm: np.ndarray) -> bytes:
+    import io, wave
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm.tobytes())
+    return buf.getvalue()
+
+
+if __name__ == '__main__':   # 自检: python -m core.client.audio.cloud_asr <16k 单声道 wav> [引擎 key]  (按真实语速回放, 真调接口)
     import sys, wave
     logger.addHandler(__import__('logging').StreamHandler()); logger.setLevel('DEBUG')
-    Config.asr_engine = 'cloud'
+    Config.asr_engine = sys.argv[2] if len(sys.argv) > 2 else 'cloud'     # 顺带测旧值 cloud 的兼容
 
     async def main():
         with wave.open(sys.argv[1]) as w:
             x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
         n = [0]
-        cs = CloudStream(lambda t: (n.__setitem__(0, n[0] + 1), print(f'  中间 {len(t):3d} 字: …{t[-24:]}')))
+        cs = create(lambda t: (n.__setitem__(0, n[0] + 1), print(f'  中间 {len(t):3d} 字: …{t[-24:]}')))
+        assert cs is not None, f'{engine_key()} 不可用 (缺 key?)'
         for i in range(0, len(x), 800):                       # 50ms 一块, 与录音回调同节奏
             cs.feed(x[i:i + 800]); await asyncio.sleep(0.05)
-        text = await cs.finish(1.5)
-        assert text and n[0] > 3, (text, n[0])
+        text = await cs.finish(finish_timeout())
+        stream = ENGINES[engine_key()][1] == 'stream'
+        assert text and (n[0] > 3 if stream else n[0] == 0), (text, n[0])
+        print(f'[{engine_key()}] 中间结果 {n[0]} 次')
         print('最终:', text)
         print('cloud_asr selftest ok')
     asyncio.run(main())
