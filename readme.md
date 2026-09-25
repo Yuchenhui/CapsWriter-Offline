@@ -88,6 +88,21 @@ CapsWriter 的特别之处在于追求：
 
 所有的设置都在根目录的 `config_server.py` 和 `config_client.py` 里，可直接编辑。
 
+### 在线识别 / 二次整理的 key（本 fork）
+
+key 只从 **Windows 用户环境变量** 读取，不写进任何文件。设好后说下一句就生效，不用重启（每次调用都直接读 `HKCU\Environment`）。用不到的服务可以不设，设置窗口里对应选项会标出「缺 xxx」。
+
+| 环境变量 | 服务 | 用途 | 申请 key |
+|---|---|---|---|
+| `DASHSCOPE_API_KEY` | 阿里云百炼（千问） | 流式 / 非流式识别 | https://bailian.console.aliyun.com/ → 右上角头像 → API-KEY 管理 |
+| `ZHIPU_API_KEY` | 智谱 GLM Coding Plan | 非流式识别 glm-asr-2512、整理 GLM-5.3 Flash | https://bigmodel.cn/usercenter/proj-mgmt/apikeys |
+| `MIMO_API_KEY` | 小米 MiMo Token Plan | 非流式识别 mimo-v2.5-asr、整理 MiMo V2.6 Flash | https://platform.xiaomimimo.com |
+| `MINIMAX_API_KEY` | MiniMax Token Plan | 非流式识别 asr-1.0、整理 MiniMax M3（没设时回退读 mmx-cli 的 `~/.mmx/config.json`） | https://platform.minimaxi.com/user-center/basic-information/interface-key |
+| `KIMI_API_KEY` | Kimi Code 会员 | 整理 Kimi K3（会员地址 `api.kimi.com/coding/v1`，不是开放平台按量计费的 key） | https://www.kimi.com/code |
+| `DEEPSEEK_API_KEY` | DeepSeek 开放平台 | 整理 DeepSeek V4 Flash（默认） | https://platform.deepseek.com/api_keys |
+
+设置方法：Win 键搜「编辑账户的环境变量」→「用户变量」→ 新建 / 编辑。
+
 
 ## 🛠️ 常见问题
 
