@@ -69,9 +69,66 @@ def available() -> bool:
     return kind != 'local' and _has_key(env)
 
 
+# ---- 失败提示: 云端出问题时弹红条告诉用户 (不只写日志). 同一引擎同一类错误 10 分钟内只弹一次 ----
+_ALERT_GAP = 600
+_alerted: dict = {}
+_HINTS = {'balance': ('余额不足或资源包用完', '去控制台充值, 或在设置里换引擎'),
+          'auth': ('key 无效或服务没开通', '检查环境变量里的 key, 或在设置里换引擎'),
+          'nokey': ('没设置 key', '在用户环境变量里加上 key, 或在设置里换引擎'),
+          'rate': ('请求太频繁被限流', '稍后会自动恢复'),
+          'timeout': ('响应超时', '网络慢或服务繁忙, 下一句会再试'),
+          'net': ('连不上服务', '检查网络; 下一句会再试'),
+          'error': ('接口报错', '详情见 logs/client_latest.log')}
+
+
+def classify(code, text: str = '') -> str:
+    """HTTP 状态码 / 厂商错误码 + 错误文字 -> 错误类别 (_HINTS 的键)"""
+    t = f'{code} {text}'.lower()
+    if any(k in t for k in ('1113', '余额', 'balance', 'insufficient', 'quota', 'arrearage', '欠费')):
+        return 'balance'
+    if code in (401, 403) or any(k in t for k in ('not granted', 'invalid api', 'invalidapikey', 'unauthorized', 'access denied', '鉴权')):
+        return 'auth'
+    if code == 429 or 'too many' in t or 'rate limit' in t:
+        return 'rate'
+    return 'error'
+
+
+def classify_exc(e: BaseException) -> tuple:
+    """异常 -> (类别, 给日志的详情). HTTPError 读出响应体里的厂商错误码"""
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read()[:300].decode('utf-8', 'replace')
+        except Exception:
+            body = ''
+        return classify(e.code, body), f'HTTP {e.code} {body}'
+    if isinstance(e, (TimeoutError, asyncio.TimeoutError)):
+        return 'timeout', type(e).__name__
+    if isinstance(e, (ConnectionError, OSError)):
+        return 'net', f'{type(e).__name__}: {e}'
+    return 'error', f'{type(e).__name__}: {e}'
+
+
+def alert(kind: str) -> None:
+    """弹提示: 「智谱 glm-asr-2512：余额不足… 这句已改用本地识别。去控制台充值…」"""
+    name = ENGINES[engine_key()][0].split('（')[0]
+    now = time.monotonic()
+    if now - _alerted.get((name, kind), -_ALERT_GAP) < _ALERT_GAP:
+        return
+    _alerted[(name, kind)] = now
+    what, todo = _HINTS.get(kind, _HINTS['error'])
+    try:
+        from core.ui.toast import toast
+        toast(f'{name}：{what}，这句已改用本地识别。\n{todo}', duration=8000)
+    except Exception as e:
+        logger.debug(f'弹失败提示失败: {e}')
+
+
 def create(on_partial: Callable[[str], None]):
-    """按当前选择建一句话的识别实例; 本地 / 没 key 返回 None"""
+    """按当前选择建一句话的识别实例; 本地 / 没 key 返回 None (没 key 时弹提示)"""
     if not available():
+        if ENGINES[engine_key()][1] != 'local':
+            alert('nokey')
         return None
     _, kind, model, _ = ENGINES[engine_key()]
     if model.startswith('doubao'):
@@ -127,6 +184,8 @@ class CloudStream:
             await asyncio.wait_for(self._finished.wait(), max(0.05, timeout - (time.perf_counter() - t)))
         except Exception as e:
             logger.warning(f'在线识别未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
+            if not self._failed:          # 已失败的 (_run 里弹过) 不重复弹
+                alert(classify_exc(e)[0])
             self.cancel()
             return None
         ok, text = not self._failed, self._text()
@@ -215,12 +274,16 @@ class CloudStream:
                     self._finished.set()
                     return
                 elif name == 'task-failed':
-                    logger.warning(f'在线识别失败: {ev["header"].get("error_code")} {ev["header"].get("error_message")}')
+                    code, msg = ev['header'].get('error_code'), ev['header'].get('error_message')
+                    logger.warning(f'在线识别失败: {code} {msg}')
+                    alert(classify(code, msg or ''))
                     break
         except asyncio.CancelledError:
             return
         except Exception as e:
-            logger.warning(f'在线识别连接失败, 用本地识别: {type(e).__name__}: {e}')
+            kind, detail = classify_exc(e)
+            logger.warning(f'在线识别连接失败, 用本地识别: {detail}')
+            alert(kind)
         self._failed = True
         self._started.set()      # 唤醒 finish() 的等待, 让它立刻走兜底
         self._finished.set()
@@ -287,8 +350,9 @@ class VolcStream(CloudStream):
                 mtype, flags, comp = raw[1] >> 4, raw[1] & 0x0F, raw[2] & 0x0F
                 if mtype == 0b1111:                               # 错误帧: 错误码 + 长度 + 消息
                     msg = raw[12:12 + int.from_bytes(raw[8:12], 'big')]
-                    logger.warning(f'豆包在线识别失败: {int.from_bytes(raw[4:8], "big")} '
-                                   f'{(gzip.decompress(msg) if comp else msg).decode("utf-8", "replace")[:200]}')
+                    code, text = int.from_bytes(raw[4:8], 'big'), (gzip.decompress(msg) if comp else msg).decode('utf-8', 'replace')[:200]
+                    logger.warning(f'豆包在线识别失败: {code} {text}')
+                    alert(classify(code, text))
                     break
                 p = 8 if flags & 1 else 4                          # 带 sequence 时多 4 字节
                 body = raw[p + 4:p + 4 + int.from_bytes(raw[p:p + 4], 'big')]
@@ -307,7 +371,10 @@ class VolcStream(CloudStream):
         except asyncio.CancelledError:
             return
         except Exception as e:
+            status = getattr(getattr(e, 'response', None), 'status_code', None)   # websockets 握手被拒
+            kind = classify(status, str(e)) if status else classify_exc(e)[0]
             logger.warning(f'豆包在线识别连接失败, 用本地识别: {type(e).__name__}: {e}')
+            alert(kind)
         self._failed = True
         self._started.set()
         self._finished.set()
@@ -336,7 +403,9 @@ class BatchASR:
             rec = self._zhipu if self._model == 'glm-asr-2512' else (lambda x: self._recognize(_wav(x)))
             text, billed = await asyncio.wait_for(asyncio.to_thread(rec, pcm), timeout)
         except Exception as e:
-            logger.warning(f'在线识别 {self._model} 未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
+            kind, detail = classify_exc(e)
+            logger.warning(f'在线识别 {self._model} 失败, 用本地识别 ({detail})')
+            alert(kind)
             return None
         try:
             from core.tools import asr_usage
