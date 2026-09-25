@@ -53,5 +53,19 @@ order = [i['key'] for i in _fallback_items(all_items, 'step-batch', [], 'qwen_as
 assert order == ['qwen-batch', 'mimo-batch', 'local:qwen_asr', 'local:sensevoice'], order
 order = [i['key'] for i in _fallback_items(all_items, 'step-batch', ['mimo-batch'], 'qwen_asr')]
 assert order[0] == 'mimo-batch', order
+# 开关置灰: 点击不响应; 恢复后正常
+from core.client.settings.widgets import Toggle
+changes = []
+tg = Toggle(root, pal, False, changes.append)
+tg.pack()
+root.update()
+tg.set_enabled(False)
+tg.event_generate('<Button-1>')
+root.update()
+assert changes == [] and tg.value is False, changes
+tg.set_enabled(True)
+tg.event_generate('<Button-1>')
+root.update()
+assert changes == [True], changes
 root.destroy()
 print('OK')

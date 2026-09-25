@@ -93,9 +93,20 @@ def build(parent, pal, ctx):
 
     section(f, pal, '识别后整理').pack(anchor='w', pady=(26, 8))
     items = [{'key': k, 'title': t, 'detail': d} for k, t, d in POLISH]
-    ChoiceGroup(f, pal, items, st.get('polish', ''), lambda k: ctx.do('set_polish', k)).pack(fill='x')
     row = tk.Frame(f, bg=pal.bg)
+    label = tk.Label(row, text='结构化整理：说多件事时编号、分行', font=font(11), bg=pal.bg)
+    label.pack(side='left')
+    tg = Toggle(row, pal, bool(st.get('polish_structure')), lambda v: ctx.do('set_structure', v), bg=pal.bg)
+    tg.pack(side='right')
+
+    def gray(polish: str):                 # 整理关着时结构化不起作用: 置灰, 点不动
+        tg.set_enabled(bool(polish))
+        label.configure(fg=pal.fg if polish else pal.muted)
+
+    def pick_polish(k):
+        ctx.do('set_polish', k)
+        gray(k)
+    ChoiceGroup(f, pal, items, st.get('polish', ''), pick_polish).pack(fill='x')
     row.pack(fill='x', pady=(12, 0))
-    tk.Label(row, text='结构化整理：说多件事时编号、分行', font=font(11), bg=pal.bg, fg=pal.fg).pack(side='left')
-    Toggle(row, pal, bool(st.get('polish_structure')), lambda v: ctx.do('set_structure', v), bg=pal.bg).pack(side='right')
+    gray(st.get('polish', ''))
     return f

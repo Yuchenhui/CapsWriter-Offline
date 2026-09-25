@@ -40,13 +40,13 @@ def radio_image(pal, on: bool, bg: str):
     return _aa(('radio', pal.accent, pal.border, bg, on), 18, 18, draw)
 
 
-def toggle_image(pal, on: bool, bg: str):
+def toggle_image(pal, on: bool, bg: str, enabled: bool = True):
     def draw(d, k):
-        track = pal.accent if on else pal.border
+        track = (pal.accent if on else pal.border) if enabled else pal.hover
         d.rounded_rectangle((1 * k, 1 * k, 41 * k, 23 * k), radius=11 * k, fill=_rgba(track))
         x = 30 if on else 12
         d.ellipse(((x - 9) * k, 3 * k, (x + 9) * k, 21 * k), fill=(255, 255, 255, 255))
-    return _aa(('toggle', pal.accent, pal.border, bg, on), 42, 24, draw)
+    return _aa(('toggle', pal.accent, pal.border, pal.hover, bg, on, enabled), 42, 24, draw)
 
 
 class Card(tk.Frame):
@@ -132,8 +132,14 @@ class Toggle(tk.Label):
 
     def __init__(self, parent, pal, value=False, on_change=None, bg=None):
         super().__init__(parent, bg=bg or pal.surface, bd=0, cursor='hand2')
-        self.pal, self.value, self.on_change, self.bg = pal, value, on_change, bg or pal.surface
-        self.bind('<Button-1>', lambda e: self.set(not self.value, True))
+        self.pal, self.value, self.on_change, self.bg, self.enabled = pal, value, on_change, bg or pal.surface, True
+        self.bind('<Button-1>', lambda e: self.enabled and self.set(not self.value, True))
+        self._draw()
+
+    def set_enabled(self, on: bool):
+        """置灰: 画成灰色轨道, 点击不响应"""
+        self.enabled = on
+        self.configure(cursor='hand2' if on else '')
         self._draw()
 
     def set(self, v, fire=False):
@@ -143,7 +149,7 @@ class Toggle(tk.Label):
             self.on_change(v)
 
     def _draw(self):
-        self.configure(image=toggle_image(self.pal, self.value, self.bg))
+        self.configure(image=toggle_image(self.pal, self.value, self.bg, self.enabled))
 
 
 class Segmented(tk.Frame):
