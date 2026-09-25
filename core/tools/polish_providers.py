@@ -2,12 +2,11 @@
 二次整理可选的在线 LLM 服务商 (客户端托盘菜单 + 服务端调用共用这一份).
 
 加服务商: 在 PROVIDERS 里加一项. 要求 OpenAI 兼容的 /chat/completions 接口, 且能关掉"思考" (否则一句要等好几秒).
-key 只从环境变量读; 某些服务商允许回退读它自家命令行工具的配置文件 (key_file, 只读, 不复制到别处).
+key 只从用户环境变量读 (注册表 HKCU/Environment 优先), 不读任何配置文件.
 实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 0.7-2.3s; MiMo V2.6 Flash 中位 0.74s 但 3/8 次 >3s (最慢 13s);
 MiniMax M2.7 关不掉思考 3-6s, 不收录. 2026-09-26 评测 (DeepSeek V4 Flash 37/38 中位 0.85s): Kimi K3 36/38 1.55s (K2.8 32/38); GLM-5.3 Flash 35/38 1.25s;
 DeepSeek V4 Pro 36/38 1.6s 且更贵, 不收录.
 """
-import json
 import os
 
 PROVIDERS = {
@@ -22,7 +21,6 @@ PROVIDERS = {
         'url': 'https://api.minimaxi.com/v1/chat/completions',
         'model': 'MiniMax-M3',
         'key_env': 'MINIMAX_API_KEY',
-        'key_file': ('~/.mmx/config.json', 'api_key'),   # mmx-cli 登录后存的 key
     },
     'mimo': {
         'name': 'MiMo V2.6 Flash',
@@ -82,13 +80,6 @@ def env_key(name: str) -> str:
 def api_key(pid: str) -> str:
     p = PROVIDERS[pid]
     key = env_key(p['key_env'])
-    if not key and p.get('key_file'):
-        path, field = p['key_file']
-        try:
-            with open(os.path.expanduser(path), encoding='utf-8') as f:
-                key = json.load(f).get(field, '') or ''
-        except (OSError, ValueError):
-            key = ''
     if not key:
         raise RuntimeError(f'{p["name"]} 的 key 未设置 (环境变量 {p["key_env"]})')
     return key

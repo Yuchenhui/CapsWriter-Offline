@@ -51,7 +51,7 @@ def engine_key() -> str:
 
 def _has_key(env: str) -> bool:
     pid = {'MINIMAX_API_KEY': 'minimax', 'MIMO_API_KEY': 'mimo', 'ZHIPU_API_KEY': 'zhipu', 'KIMI_API_KEY': 'kimi'}.get(env)
-    if pid:          # 与二次整理共用 key: MiniMax 另认 mmx-cli 配置; 也读启动后才设的注册表变量
+    if pid:          # 与二次整理共用 key
         from core.tools.polish_providers import api_key
         try:
             return bool(api_key(pid))
