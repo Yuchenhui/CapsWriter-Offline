@@ -16,6 +16,7 @@ class Context:
         self.readonly = readonly
         self.app = app
         self.on_theme_changed = None   # 窗口换主题后重绘 (window.py 设置)
+        self._preview = {}             # 预览模式: 只在内存里记下的改动 (让预览也能看到换主题效果, 不写文件)
 
     # ---- 读 ----
     def _json(self, name) -> dict:
@@ -30,6 +31,7 @@ class Context:
              'polish_structure': getattr(C, 'polish_structure', False), 'capsule_theme': getattr(C, 'capsule_theme', 'auto')}
         if self.readonly:                 # 预览是独立进程, 内存里的 Config 不是客户端的, 以 user_state.json 为准
             s.update(self._json('user_state.json'))
+            s.update(self._preview)
         return s
 
     def asr_usage(self) -> dict:
@@ -59,6 +61,8 @@ class Context:
         if self.readonly:
             logger.info(f'[预览, 未生效] {what} {args[:2]}')
             print(f'[预览, 未生效] {what} {args[:1]}')
+            if what == 'set_theme':
+                self._preview['capsule_theme'] = args[0]
             return True
         from core.client.settings import actions
         fn = getattr(actions, what, None)

@@ -119,6 +119,7 @@ class ToastMessageManager:
 
         self._initialized = True
         self.message_queue: Queue[ToastMessage] = Queue()
+        self._calls: Queue = Queue()   # 本地改 2026-09-25: call_soon 交给 Tk 线程执行的函数 (设置窗口等)
         self.is_running = False
         self.active_windows: List = []  # 运行时类型，避免循环导入
         self._cancelled_ids: set = set()  # 本地改: close 落在"已出队、未建好"空档里的 ID, 建好后立即销毁
@@ -164,9 +165,19 @@ class ToastMessageManager:
         if self.root:
             self.root.quit()
 
+    def call_soon(self, fn) -> None:
+        """任意线程: 让 fn 在 Tk 线程执行 (随队列轮询, 至多 QUEUE_POLL_INTERVAL_MS 后)"""
+        self._calls.put(fn)
+
     def _process_queue(self) -> None:
         """处理队列中的消息"""
         try:
+            while not self._calls.empty():
+                fn = self._calls.get_nowait()
+                try:
+                    fn()
+                except Exception as e:
+                    logger.warning(f'Tk 线程任务出错: {e}')
             if not self.message_queue.empty():
                 msg = self.message_queue.get_nowait()
                 msg_id = getattr(msg, '_id', 'unknown')

@@ -39,7 +39,7 @@ class ScrollArea(tk.Frame):
         self.canvas.pack(fill='both', expand=True)
         self.inner.bind('<Configure>', lambda e: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
         self.canvas.bind('<Configure>', lambda e: self.canvas.itemconfigure(self._win, width=e.width))
-        self.bind_all('<MouseWheel>', self._wheel, add='+')
+        self.winfo_toplevel().bind('<MouseWheel>', self._wheel, add='+')   # 绑在本窗口 (bind_all 会随重建 / 重开越积越多)
 
     def _wheel(self, e):
         w = self.winfo_containing(e.x_root, e.y_root)
@@ -47,8 +47,11 @@ class ScrollArea(tk.Frame):
             if isinstance(w, tk.Text):             # 编辑框自己滚
                 return
             w = w.master
-        if w is self and self.inner.winfo_height() > self.canvas.winfo_height():
-            self.canvas.yview_scroll(int(-e.delta / 120), 'units')
+        try:
+            if w is self and self.inner.winfo_height() > self.canvas.winfo_height():
+                self.canvas.yview_scroll(int(-e.delta / 120), 'units')
+        except tk.TclError:
+            pass
 
     def top(self):
         self.canvas.yview_moveto(0)
@@ -56,7 +59,8 @@ class ScrollArea(tk.Frame):
 
 class SettingsWindow:
     def __init__(self, master, ctx):
-        self.ctx = ctx
+        self.master, self.ctx, self.current = master, ctx, None
+        ctx.on_theme_changed = self.rebuild
         self.pal = pal = palette.for_theme(ctx.state().get('capsule_theme', 'auto'))
         self.win = win = tk.Toplevel(master) if master is not None else tk.Tk()
         win.title('CapsWriter 设置')
@@ -89,6 +93,7 @@ class SettingsWindow:
         win.protocol('WM_DELETE_WINDOW', self.close)
 
     def show(self, mod):
+        self.current = mod
         p = self.pal
         for m, (item, bar, lab) in self.nav.items():
             on = m is mod
@@ -104,6 +109,15 @@ class SettingsWindow:
             self.page = tk.Label(self.area.inner, text=f'这一页出错了: {e}', bg=p.bg, fg=p.danger, font=font(10))
         self.page.pack(fill='both', expand=True, padx=32, pady=28)
         self.area.top()
+
+    def rebuild(self):
+        """换主题后按新配色重建窗口, 停在原分页 (位置 / 大小保持)"""
+        global _instance
+        geo, cur = self.win.geometry(), self.current
+        self.win.destroy()
+        _instance = SettingsWindow(self.master, self.ctx)
+        _instance.win.geometry(geo)
+        _instance.show(cur)
 
     def close(self):
         global _instance
@@ -121,18 +135,30 @@ def open_settings(master, ctx):
     return _instance
 
 
+def show(app) -> None:
+    """托盘等任意线程调用: 在 Tk 线程打开 (或提到最前) 设置窗口"""
+    from core.ui.toast_manager import ToastMessageManager
+    from core.client.settings.context import Context
+    mgr = ToastMessageManager()
+    mgr.call_soon(lambda: open_settings(mgr.root, Context(app.base_dir, app=app)))
+
+
 if __name__ == '__main__':
     import argparse, os
     ap = argparse.ArgumentParser()
     ap.add_argument('--preview', action='store_true')
     ap.add_argument('--base', default=r'C:\Users\Marshall\Apps\CapsWriter-Offline')
     ap.add_argument('--shots', default='')
+    ap.add_argument('--theme', default='', help='预览用某个主题的配色 (不写设置)')
     a = ap.parse_args()
     from core.client.settings.context import Context
     root = tk.Tk()                                      # 同客户端: 隐藏根窗口 + tk scaling 2 (toast_constants)
     root.withdraw()
     root.tk.call('tk', 'scaling', 2)
-    sw = open_settings(root, Context(a.base, readonly=True))
+    ctx = Context(a.base, readonly=True)
+    if a.theme:
+        ctx._preview['capsule_theme'] = a.theme
+    sw = open_settings(root, ctx)
     sw.win.bind('<Destroy>', lambda e: e.widget is sw.win and root.after(0, root.destroy), add='+')
     if a.shots:                                         # 逐页截图后退出 (PrintWindow: 被别的窗口挡住也能截, 不抢前台)
         from PIL import Image

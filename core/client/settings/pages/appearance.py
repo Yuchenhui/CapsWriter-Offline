@@ -51,7 +51,8 @@ def build(parent, pal, ctx):
             on = kk == k
             card.configure(highlightbackground=pal.accent if on else pal.border, highlightthickness=2 if on else 1)
             name.configure(fg=pal.accent if on else pal.fg)
-        ctx.do('set_theme', k)
+        if ctx.do('set_theme', k) and ctx.on_theme_changed:   # 窗口按新主题配色重建 (延后, 不在点击回调里销毁自己)
+            grid.after(50, ctx.on_theme_changed)
 
     for i, (key, label) in enumerate(THEMES):
         card = tk.Frame(grid, bg=pal.surface, cursor='hand2')
