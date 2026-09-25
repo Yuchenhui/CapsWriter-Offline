@@ -73,7 +73,7 @@ class TextOutput:
             if any(app.lower() == process_name for app in Config.trash_punc_apps):
                 force_strip = True
 
-        if not force_strip and Config.trash_punc_thresh > 0 and count_semantic_units(text) > Config.trash_punc_thresh:
+        if not force_strip and count_semantic_units(text) > Config.trash_punc_thresh:   # 阈值 0 = 不去 (原先 0 反而等于总去)
             return text
 
         clean_text = re.sub(f"(?<=.)[{Config.trash_punc}]$", "", text)

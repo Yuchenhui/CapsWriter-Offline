@@ -21,7 +21,11 @@ def say(stripped, text):
     clock[0] += 1
     return out
 
-# strip_punc 记录删掉的标点 (短句删, 长句不删)
+# strip_punc 记录删掉的标点 (短句删, 长句不删); 阈值 0 = 不删
+from config_client import ClientConfig
+ClientConfig.trash_punc_thresh = 0
+assert TextOutput.strip_punc('你好。') == '你好。' and TextOutput.last_stripped == ''
+ClientConfig.trash_punc_thresh = 8
 assert TextOutput.strip_punc('你好。') == '你好' and TextOutput.last_stripped == '。'
 assert TextOutput.strip_punc('这是一个超过八个字的比较长的句子。') .endswith('。') and TextOutput.last_stripped == ''
 TextOutput.strip_punc('好的，', record=False); assert TextOutput.last_stripped == ''
