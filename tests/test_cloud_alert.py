@@ -26,8 +26,10 @@ assert ca.classify(500, 'internal') == 'error'
 
 ca.Config.asr_engine = 'zhipu-batch'
 ca.alert('balance')
-ca.alert('balance')                     # 10 分钟内同类不再弹
-ca.alert('timeout')                     # 不同类照弹
-assert len(shown) == 2, shown
+ca.alert('balance')                     # 余额类: 之后每句一行短提示
+ca.alert('timeout')                     # 超时: 首次提示
+ca.alert('timeout')                     # 超时: 10 分钟内不再提示
+assert len(shown) == 3, shown
+assert shown[1] == '智谱不可用（余额不足），这句用了本地识别', shown[1]
 assert shown[0].startswith('智谱：余额不足') and '本地识别' in shown[0], shown[0]
 print('OK')

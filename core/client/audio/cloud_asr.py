@@ -109,17 +109,24 @@ def classify_exc(e: BaseException) -> tuple:
     return 'error', f'{type(e).__name__}: {e}'
 
 
+_PERSISTENT = {'balance', 'auth', 'nokey'}      # 不会自己好的: 每句都提示 (用户 2026-09-26: 只提示一次就不知道后面都在用本地)
+
+
 def alert(kind: str) -> None:
-    """弹提示: 「智谱 glm-asr-2512：余额不足… 这句已改用本地识别。去控制台充值…」"""
-    name = ENGINES[engine_key()][0].split('（')[0]
+    """胶囊下方气泡提示. 10 分钟内首次: 两行 (原因 + 怎么办) 停 5 秒;
+    之后: 余额 / key 类每句一行短提示停 2 秒, 超时 / 网络类不再提示 (偶发, 下一句多半就好了)"""
+    vendor = ENGINES[engine_key()][0].split()[0]
     now = time.monotonic()
-    if now - _alerted.get((name, kind), -_ALERT_GAP) < _ALERT_GAP:
+    first = now - _alerted.get((vendor, kind), -_ALERT_GAP) >= _ALERT_GAP
+    if not first and kind not in _PERSISTENT:
         return
-    _alerted[(name, kind)] = now
+    if first:
+        _alerted[(vendor, kind)] = now
     what, todo = _HINTS.get(kind, _HINTS['error'])
+    text, sec = (f'{vendor}：{what}，这句改用了本地识别\n{todo}', 5.0) if first else (f'{vendor}不可用（{what}），这句用了本地识别', 2.0)
     try:
         from core.ui import live_bubble      # 胶囊下方的小气泡 (琥珀色字), 不弹大框
-        live_bubble.notice(f'{name.split()[0]}：{what}，这句改用了本地识别\n{todo}', seconds=5.0)
+        live_bubble.notice(text, seconds=sec)
     except Exception as e:
         logger.debug(f'弹失败提示失败: {e}')
 
