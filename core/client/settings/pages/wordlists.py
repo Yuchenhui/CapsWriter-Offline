@@ -51,9 +51,11 @@ def build(parent, pal, ctx):
 
     def save(_e=None):
         body = text.get('1.0', 'end-1c')
-        if ctx.do('save_wordlist', state['file'], len(body)):
+        if ctx.do('save_wordlist', state['file'], body):
             state['saved'] = body
             refresh_status()
+        else:
+            status.configure(text='保存失败，见日志', fg=pal.danger)
         return 'break'
 
     for key, label, _, _ in WORDLISTS:
