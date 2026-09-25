@@ -136,6 +136,8 @@ class TaskHandler:
         """闲置资源清理：对齐器卸载 + GPU 加速取消。"""
         if self.pipeline and self.pipeline.aligner:
             self.pipeline.aligner.check_idle()
+        if hasattr(self.recognizer, 'check_idle'):   # 用在线识别时闲置卸载本地模型
+            self.recognizer.check_idle()
         self.gpu_boost.check_idle()
 
     def handle_command_task(self, task):

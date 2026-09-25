@@ -235,12 +235,16 @@ class BatchASR:
         except Exception as e:
             logger.warning(f'在线识别 {self._model} 未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
             return None
-        logger.info(f'在线识别 {self._model} 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
         try:
             from core.tools import asr_usage
             asr_usage.add(self._model, {'seconds': billed}, len(pcm) / 16000)
         except Exception as e:
             logger.debug(f'记录在线识别用量失败: {e}')
+        if not text.strip():
+            logger.warning(f'在线识别 {self._model} {time.perf_counter() - t:.2f}s 后返回空文字, 用本地识别 '
+                           f'(音频 {len(pcm) / 16000:.1f}s, 峰值 {int(np.abs(pcm).max()) if len(pcm) else 0})')
+            return None
+        logger.info(f'在线识别 {self._model} 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
         return text
 
     def _recognize(self, wav: bytes) -> tuple:
@@ -258,6 +262,13 @@ class BatchASR:
                                          {'Authorization': 'Bearer ' + api_key('minimax'),
                                           'Content-Type': f'multipart/form-data; boundary={b}'})
             r = json.load(urllib.request.urlopen(req, timeout=30))
+            if not r.get('text'):   # 诊断 (2026-09-25 实测连续 3 句返回空, 离线重放同接口却正常): 记下原始返回和送出的音频
+                logger.warning(f'MiniMax 返回空文字: {json.dumps(r, ensure_ascii=False)[:300]}')
+                try:
+                    with open(os.path.join('logs', 'asr_debug_last.wav'), 'wb') as f:
+                        f.write(wav)
+                except OSError:
+                    pass
             return r.get('text', ''), r.get('duration', 0)
         from core.tools.terms import load_terms  # 千问 qwen3-asr-flash: OpenAI 兼容, 术语表放 system 作上下文
         messages = [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {

@@ -21,6 +21,8 @@ class ServerConfig:
 
     # 二次整理: 在线 LLM 只修听错的术语/同音字/标点 (core/server/worker/polish.py); 客户端托盘可随时开关
     polish_enabled = True
+    # 本地改 2026-09-25: 客户端用在线识别时, 本地识别模型闲置这么多秒后卸载 (释放约 2.4GB 显存), 需要本地识别时自动重载 (~5s). 0 = 不卸载
+    asr_unload_idle_sec = 60
     # 服务商 (接口 / 模型 / key 来源) 在 core/tools/polish_providers.py, 客户端托盘「二次整理」里选
     polish_timeout = 3.0        # 秒; 超时/断网直接用原文
     polish_structure_timeout = 8.0   # 结构化整理 (托盘开关) 输出更长, 单独放宽

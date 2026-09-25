@@ -46,8 +46,10 @@ class ModelLoader:
         logger.info(f"Loader 开始初始化语音系统 (引擎: {model_type})")
 
         try:
-            # 2. 通过工厂实例化 ASR 核心引擎
-            self.recognizer = EngineFactory.create_asr_engine(model_type)
+            # 2. 通过工厂实例化 ASR 核心引擎 (本地改 2026-09-25: 套托管代理, 用在线识别时闲置卸载释放显存, 需要时自动重载)
+            from ..engines.manager import ManagedASRProxy
+            self.recognizer = ManagedASRProxy(lambda: self._create_recognizer(model_type),
+                                              getattr(Config, 'asr_unload_idle_sec', 60))
             caps = self.recognizer.capabilities
             logger.info(f"引擎加载成功，能力清单: {[c.name for c in caps]}")
 
@@ -59,17 +61,23 @@ class ModelLoader:
             if EngineCapabilities.TIMESTAMPS not in caps:
                 self._load_align_model()
 
-            # 5. 加载热词 (如果引擎支持 HOTWORDS 能力)
-            if EngineCapabilities.HOTWORDS in caps and Config.hotwords_path.exists():
-                hotwords = [l.strip() for l in Config.hotwords_path.read_text('utf-8').splitlines() 
-                           if l.strip() and not l.strip().startswith('#')]
-                self.recognizer.update_hotwords(hotwords)
+            # 5. 热词已在 _create_recognizer 里加载 (卸载后重载时也要重新加载)
 
             logger.info(f"全系统初始化完成，耗时: {time.time() - t1:.2f}s")
             
         except Exception as e:
             logger.error(f"Loader 加载失败: {str(e)}", exc_info=True)
             raise e
+
+    @staticmethod
+    def _create_recognizer(model_type: str):
+        """建识别引擎并加载热词 (引擎支持 HOTWORDS 时); 托管代理在启动和卸载后重载时调用"""
+        engine = EngineFactory.create_asr_engine(model_type)
+        if EngineCapabilities.HOTWORDS in engine.capabilities and Config.hotwords_path.exists():
+            hotwords = [l.strip() for l in Config.hotwords_path.read_text('utf-8').splitlines()
+                        if l.strip() and not l.strip().startswith('#')]
+            engine.update_hotwords(hotwords)
+        return engine
 
     def _load_punc_model(self):
         """加载标点补足模型插件"""

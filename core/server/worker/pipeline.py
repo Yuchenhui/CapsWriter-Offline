@@ -121,7 +121,10 @@ class TaskPipeline:
                 return result
 
             # 3. 执行识别推理 (本地改: 客户端已带在线识别结果时直接用, 整句替换, 不跑本地模型)
+            mark = getattr(self.recognizer, 'mark', None)   # 托管代理: 记录本句是否用在线结果 (决定闲置时能否卸载本地模型)
             if task.is_final and task.cloud_text:
+                if mark:
+                    mark(online=True)
                 result.time_start, result.time_submit = task.time_start, task.time_submit
                 result.time_complete = time.time()
                 result.text = result.text_accu = task.cloud_text
@@ -129,6 +132,8 @@ class TaskPipeline:
                 logger.info(f'在线识别结果：{task.cloud_text}')
                 return self._finalize(task, result)
 
+            if mark:
+                mark(online=False)
             stream = self.recognizer.create_stream()
             stream.accept_waveform(task.samplerate, samples)
             self.recognizer.decode_stream(stream, context=task.context, language=task.language)
