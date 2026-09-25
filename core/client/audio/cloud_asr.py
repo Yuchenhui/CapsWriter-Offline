@@ -132,6 +132,15 @@ def alert(kind: str) -> None:
         logger.debug(f'弹失败提示失败: {e}')
 
 
+def end_punc(text: str) -> str:
+    """云端结果结尾没有标点时补上 (阶跃 / 智谱 / MiniMax 常不带句末标点; 延迟补标点只补被删掉的, 补不了本来就没有的).
+    以 吗 / 呢 结尾补问号, 其余补句号; 末尾已有任何标点或符号的不动"""
+    t = text.rstrip()
+    if not t or not (t[-1].isalnum() or '一' <= t[-1] <= '鿿'):
+        return text
+    return t + ('？' if t[-1] in '吗呢' else '。')
+
+
 def create(on_partial: Callable[[str], None]):
     """按当前选择建一句话的识别实例; 本地 / 没 key 返回 None (没 key 时弹提示)"""
     if not available():
@@ -201,7 +210,7 @@ class CloudStream:
         if not ok:
             return None
         logger.info(f'在线识别 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
-        return text
+        return end_punc(text)
 
     def cancel(self) -> None:
         if not self._recorded and self._samples:   # 每句只记一次账 (正常结束 / 超时 / 静音取消都经过这里)
@@ -425,7 +434,7 @@ class BatchASR:
                            f'(音频 {len(pcm) / 16000:.1f}s, 峰值 {int(np.abs(pcm).max()) if len(pcm) else 0})')
             return None
         logger.info(f'在线识别 {self._model} 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
-        return text
+        return end_punc(text)
 
     def _zhipu(self, pcm: np.ndarray) -> tuple:
         """智谱单次限 30 秒: 超长的在最安静处切段, 各段并行识别再拼接"""
