@@ -35,6 +35,7 @@ _CONNECT_TIMEOUT = 2.0
 ENGINES = {
     'qwen-stream': ('千问 qwen-audio-3.1（实时出字）', 'stream', 'qwen-audio-3.1-asr-flash-streaming', 'DASHSCOPE_API_KEY'),
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
+    'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
     'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
     'local': ('本地（托盘「模型」里选）', 'local', '', ''),
@@ -49,10 +50,11 @@ def engine_key() -> str:
 
 
 def _has_key(env: str) -> bool:
-    if env in ('MINIMAX_API_KEY', 'MIMO_API_KEY'):   # 与二次整理共用 key: MiniMax 另认 mmx-cli 配置; 也读启动后才设的注册表变量
+    pid = {'MINIMAX_API_KEY': 'minimax', 'MIMO_API_KEY': 'mimo', 'ZHIPU_API_KEY': 'zhipu'}.get(env)
+    if pid:          # 与二次整理共用 key: MiniMax 另认 mmx-cli 配置; 也读启动后才设的注册表变量
         from core.tools.polish_providers import api_key
         try:
-            return bool(api_key('minimax' if env == 'MINIMAX_API_KEY' else 'mimo'))
+            return bool(api_key(pid))
         except RuntimeError:
             return False
     return bool(os.environ.get(env))
@@ -232,7 +234,8 @@ class BatchASR:
         pcm = np.concatenate(self._chunks)
         t = time.perf_counter()
         try:
-            text, billed = await asyncio.wait_for(asyncio.to_thread(self._recognize, _wav(pcm)), timeout)
+            rec = self._zhipu if self._model == 'glm-asr-2512' else (lambda x: self._recognize(_wav(x)))
+            text, billed = await asyncio.wait_for(asyncio.to_thread(rec, pcm), timeout)
         except Exception as e:
             logger.warning(f'在线识别 {self._model} 未在 {timeout}s 内给出结果, 用本地识别 ({type(e).__name__}: {e})')
             return None
@@ -247,6 +250,16 @@ class BatchASR:
             return None
         logger.info(f'在线识别 {self._model} 松开后 {time.perf_counter() - t:.2f}s 出结果 ({len(text)} 字)')
         return text
+
+    def _zhipu(self, pcm: np.ndarray) -> tuple:
+        """智谱单次限 30 秒: 超长的在最安静处切段, 各段并行识别再拼接"""
+        from concurrent.futures import ThreadPoolExecutor
+        parts = _split(pcm)
+        if len(parts) == 1:
+            return self._recognize(_wav(pcm))
+        with ThreadPoolExecutor(len(parts)) as ex:
+            res = list(ex.map(lambda x: self._recognize(_wav(x)), parts))
+        return ''.join(t for t, _ in res), sum(b for _, b in res)
 
     def _recognize(self, wav: bytes) -> tuple:
         """-> (文字, 计费秒数)"""
@@ -271,6 +284,20 @@ class BatchASR:
                 except OSError:
                     pass
             return r.get('text', ''), r.get('duration', 0)
+        if self._model == 'glm-asr-2512':       # 智谱: GLM Coding Plan 地址 (套餐内), 术语表作热词 (2026-09-26 实测加了明显更准)
+            from core.tools.polish_providers import api_key
+            from core.tools.terms import load_terms
+            b = uuid.uuid4().hex
+            words = [w.strip() for w in load_terms().split(',') if w.strip()][:100]   # 官方建议热词不超过 100 个
+            fields = [('model', self._model), ('stream', 'false')] + ([('hotwords', json.dumps(words, ensure_ascii=False))] if words else [])
+            body = b''.join(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in fields)
+            body += (f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\n'
+                     'Content-Type: audio/wav\r\n\r\n').encode() + wav + f'\r\n--{b}--\r\n'.encode()
+            req = urllib.request.Request('https://open.bigmodel.cn/api/coding/paas/v4/audio/transcriptions', body,
+                                         {'Authorization': 'Bearer ' + api_key('zhipu'),
+                                          'Content-Type': f'multipart/form-data; boundary={b}'})
+            r = json.load(urllib.request.urlopen(req, timeout=30))
+            return r.get('text') or '', (len(wav) - 44) / 32000
         if self._model == 'mimo-v2.5-asr':      # 小米: Token Plan 的 OpenAI 兼容 chat 接口 (同二次整理的 key).
             from core.tools.polish_providers import PROVIDERS, api_key   # 不传术语表: 2026-09-26 实测传了反而更差
             req = urllib.request.Request(PROVIDERS['mimo']['url'], json.dumps({
@@ -293,6 +320,19 @@ class BatchASR:
                                       'Content-Type': 'application/json'})
         r = json.load(urllib.request.urlopen(req, timeout=30))
         return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
+
+
+def _split(pcm: np.ndarray, limit: float = 29.0, lo: float = 20.0) -> list:
+    """切成每段 <= limit 秒: 在 [lo, limit] 秒区间里找能量最低的 100ms 处下刀"""
+    sr, win, parts = 16000, 1600, []
+    while len(pcm) > limit * sr:
+        seg = pcm[int(lo * sr):int(limit * sr)].astype(np.float32)
+        n = len(seg) // win
+        e = (seg[:n * win].reshape(n, win) ** 2).mean(axis=1)
+        cut = int(lo * sr) + int(e.argmin()) * win + win // 2
+        parts.append(pcm[:cut])
+        pcm = pcm[cut:]
+    return parts + [pcm]
 
 
 def _wav(pcm: np.ndarray) -> bytes:

@@ -36,6 +36,12 @@ PROVIDERS = {
         'key_env': 'KIMI_API_KEY',
         'body': {'temperature': 0.6},    # 该模型只接受 0.6, 传 0 报 400
     },
+    'zhipu': {                       # 智谱 GLM Coding Plan 地址: 这里能关思考; 按量计费地址 /api/paas/v4 报"始终思考"
+        'name': 'GLM-5.3 Flash',
+        'url': 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions',
+        'model': 'glm-5.3-flash',
+        'key_env': 'ZHIPU_API_KEY',
+    },
 }
 # 2026-09-24 试过 Groq gpt-oss-120b, 不收录: 免费档按每分钟 token 限流, 评测 26 次里 18 次 429; 单次 0.9s (生成 0.05s).
 # 真要加回, 配置是: url https://api.groq.com/openai/v1/chat/completions, model openai/gpt-oss-120b, key_env GROQ_API_KEY,

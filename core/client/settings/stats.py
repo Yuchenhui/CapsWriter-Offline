@@ -10,8 +10,9 @@ NAMES = {
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
     'asr-1.0': 'MiniMax asr-1.0',
     'mimo-v2.5-asr': '小米 mimo-v2.5-asr（套餐）',
+    'glm-asr-2512': '智谱 glm-asr-2512（套餐）',
 }
-POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash', 'kimi': 'Kimi K2.8'}
+POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash', 'kimi': 'Kimi K2.8', 'zhipu': 'GLM-5.3 Flash'}
 LOCAL_NAMES = {'sensevoice': 'SenseVoice', 'fun_asr_nano': 'Fun-ASR-Nano', 'qwen_asr': 'Qwen3-ASR'}
 
 
