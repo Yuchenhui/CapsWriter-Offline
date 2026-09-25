@@ -40,6 +40,8 @@ ENGINES = {
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
+    'step-batch': ('阶跃 stepaudio-2.5-asr', 'batch', 'stepaudio-2.5-asr', 'STEP_API_KEY'),
+    'step-max-batch': ('阶跃 stepaudio-3-asr-max', 'batch', 'stepaudio-3-asr-max', 'STEP_API_KEY'),
     'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
     'local': ('本地（托盘「模型」里选）', 'local', '', ''),
 }
@@ -473,6 +475,30 @@ class BatchASR:
                                           'Content-Type': f'multipart/form-data; boundary={b}'})
             r = json.load(urllib.request.urlopen(req, timeout=30))
             text = re.sub(r'\s*#+\s*$', '', r.get('text') or '')     # 几乎没声音时会吐出 "#" (2026-09-26 实测)
+            return text, (len(wav) - 44) / 32000
+        if self._model.startswith('stepaudio'):  # 阶跃 StepFun: HTTP + SSE, 整段上传, 按量地址 (没订 Step Plan); 术语表作热词
+            from core.tools.polish_providers import env_key
+            from core.tools.terms import load_terms
+            words = [w.strip() for w in load_terms().split(',') if w.strip()]
+            body = {'audio': {'data': base64.b64encode(wav).decode(), 'input': {
+                'transcription': {'model': self._model, 'language': 'zh', 'enable_itn': True, **({'hotwords': words} if words else {})},
+                'format': {'type': 'wav'}}}}
+            req = urllib.request.Request('https://api.stepfun.com/v1/audio/asr/sse', json.dumps(body).encode(), {
+                'Authorization': 'Bearer ' + env_key('STEP_API_KEY'), 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
+            text = ''
+            with urllib.request.urlopen(req, timeout=30) as r:
+                for raw in r:
+                    line = raw.decode('utf-8', 'replace').strip()
+                    if not line.startswith('data:'):
+                        continue
+                    ev = json.loads(line[5:].strip() or '{}')
+                    if ev.get('type') == 'transcript.text.delta':
+                        text += ev.get('delta', '')
+                    elif ev.get('type') == 'transcript.text.done':
+                        text = ev.get('text', text)
+                        break
+                    elif ev.get('type') == 'error':
+                        raise RuntimeError(f"阶跃识别报错: {ev.get('message')}")
             return text, (len(wav) - 44) / 32000
         if self._model == 'mimo-v2.5-asr':      # 小米: Token Plan 的 OpenAI 兼容 chat 接口 (同二次整理的 key).
             from core.tools.polish_providers import PROVIDERS, api_key   # 不传术语表: 2026-09-26 实测传了反而更差
