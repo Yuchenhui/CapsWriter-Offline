@@ -14,7 +14,6 @@ CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 10.3/12',
                 'zhipu-batch': '¥3.6/小时 · 10.0/12',
                 'mimo-batch': '套餐内 · 10.0/12',
                 'step-batch': '¥0.15/小时 · 10.5/12',
-                'step-max-batch': '¥2.8/小时 · 10.0/12',
                 'minimax-batch': '套餐内 · 10.0/12'}
 LOCAL_SCORE = {'qwen_asr': '免费 · 9.0/12', 'fun_asr_nano': '免费 · 5.7/12', 'sensevoice': '免费 · 5.0/12'}
 POLISH = (('', '关', ''), ('deepseek', 'DeepSeek V4 Flash', '按量 · 37/38'),

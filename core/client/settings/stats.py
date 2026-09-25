@@ -9,7 +9,6 @@ NAMES = {
     'qwen-audio-3.1-asr-flash-streaming': '千问 qwen-audio-3.1（流式）',
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
     'stepaudio-2.5-asr': '阶跃 stepaudio-2.5-asr',
-    'stepaudio-3-asr-max': '阶跃 stepaudio-3-asr-max',
     'doubao-seed-asr-2.0': '豆包 Seed-ASR 2.0（流式）',
     'doubao-seed-asr-2.0-nostream': '豆包 Seed-ASR 2.0（非流式）',
     'asr-1.0': 'MiniMax asr-1.0（套餐）',

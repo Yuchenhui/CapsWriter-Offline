@@ -26,7 +26,6 @@ PRICES = {
     'qwen-audio-3.1-asr-flash-streaming': ('token', 6.0, 4.5),
     'qwen3-asr-flash': ('sec', 0.00022),
     'stepaudio-2.5-asr': ('sec', 0.15 / 3600),       # 阶跃 按量 0.15 元/小时 (platform.stepfun.com 价格页)
-    'stepaudio-3-asr-max': ('sec', 2.8 / 3600),
     'glm-asr-2512': ('sec', 0.06 / 60),
     'doubao-seed-asr-2.0': ('sec', 1 / 3600),        # 火山豆包流式 2.0 小时版 1 元/小时 (试用额度用完后)
     'doubao-seed-asr-2.0-nostream': ('sec', 1 / 3600),   # 同一资源的 nostream 接口, 同价

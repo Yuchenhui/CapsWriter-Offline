@@ -41,7 +41,6 @@ ENGINES = {
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
     'step-batch': ('阶跃 stepaudio-2.5-asr', 'batch', 'stepaudio-2.5-asr', 'STEP_API_KEY'),
-    'step-max-batch': ('阶跃 stepaudio-3-asr-max', 'batch', 'stepaudio-3-asr-max', 'STEP_API_KEY'),
     'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
     'local': ('本地（托盘「模型」里选）', 'local', '', ''),
 }
