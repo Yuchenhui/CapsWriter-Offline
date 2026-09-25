@@ -259,6 +259,14 @@ class AudioRecorder:
                         from core.client.audio import cloud_asr
                         cloud_text = await self._cloud.finish(cloud_asr.finish_timeout()) or ''
                         self._cloud = None
+                    if not cloud_text:   # 本句由本地识别 (本地引擎 / 在线失败兜底): 记用量 (费用 0), 统计页显示本地句数与时长
+                        try:
+                            import os
+                            from core.client import server_launcher
+                            from core.tools import asr_usage
+                            asr_usage.add('local:' + server_launcher.current_model(os.getcwd()), None, self._duration)
+                        except Exception as e:
+                            logger.debug(f'记录本地识别用量失败: {e}')
 
                     # 告诉服务端音频片段结束了
                     message = AudioMessage(
