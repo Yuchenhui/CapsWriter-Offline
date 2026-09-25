@@ -49,6 +49,14 @@ def close_processing(done: bool = False) -> None:
         inst.done() if done else inst.stop()
 
 
+def preview_active(text: str) -> None:
+    """在线识别中间结果 -> 当前胶囊下方的实时气泡 (本地改 2026-09-25). 任意线程可调, 无活动胶囊时 no-op"""
+    with _active_lock:
+        inst = _active
+    if inst is not None:
+        inst.preview(text)
+
+
 def _register(inst: 'RecordingToast') -> None:
     global _active
     with _active_lock:
@@ -124,6 +132,14 @@ class RecordingToast:
             logger.debug(f'录音悬浮提示已切换为正在转文字 (超时兜底 {timeout_ms}ms)')
         except Exception as e:
             logger.error(f'切换转写状态失败: {e}', exc_info=True)
+
+    def preview(self, text: str) -> None:
+        if self._msg_id is None or self._manager is None:
+            return
+        try:
+            self._manager.update_toast(self._msg_id, 'preview:' + text)
+        except Exception as e:
+            logger.debug(f'更新实时气泡失败: {e}')
 
     def done(self) -> None:
         """切到完成态: 窗口自己播完动画后销毁 (经 stop_callback 回收注册). 期间按下一句会被 start() 直接关掉"""

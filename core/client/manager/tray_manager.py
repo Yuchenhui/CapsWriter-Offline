@@ -44,6 +44,7 @@ class TrayManager:
                 ('麦克风', 'submenu', self._mic_items),
                 ('麦克风校准…', self._start_calibration),
                 ('胶囊主题', 'submenu', self._theme_items),
+                ('识别', 'submenu', self._asr_items),
                 ('模型', 'submenu', self._model_items),
                 ('词库', 'submenu', self._wordlist_items),
             ]
@@ -162,6 +163,18 @@ class TrayManager:
                 ('关', self._polish_action(''), lambda: not Config.polish)] + [
             (name(pid, p), self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
             None, ('结构化整理（编号 / 换行）', self._toggle_structure, lambda: Config.polish_structure)]
+
+    @staticmethod
+    def _asr_items():
+        """托盘「识别」: 千问在线 (流式) / 本地, 单选, 下一句起生效, 存 user_state.json"""
+        def pick(v):
+            def action():
+                Config.asr_engine = v
+                user_state.save()
+                logger.info(f'识别引擎: {v}')
+            return action
+        return [(label, pick(v), lambda v=v: Config.asr_engine == v)
+                for label, v in (('千问在线（流式，实时出字）', 'cloud'), ('本地 Qwen3-ASR', 'local'))]
 
     @staticmethod
     def _polish_label(_item=None) -> str:

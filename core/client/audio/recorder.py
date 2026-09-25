@@ -109,6 +109,7 @@ class AudioRecorder:
             self._blk_db = []   # 每 50ms 块的电平, 算底噪 / 信噪比
             from core.client.audio.decimate import Decimator3
             self._dec = Decimator3()   # 本地改: 抗混叠降采样, 每段录音一个实例 (跨块保留滤波状态)
+            self._cloud = self._cdec = None   # 本地改 2026-09-25: 千问在线流式识别 (托盘「识别」选在线时), 自带降采样器 (有状态, 不能共用)
             
             # 音频文件管理
             file_path = None
@@ -122,6 +123,10 @@ class AudioRecorder:
                 if task['type'] == 'begin':
                     self._start_time = task['time']
                     self._window = _window_desc()   # 本地改: 此时鼠标下窗口已切到前台, 就是要粘贴的目标
+                    from core.client.audio import cloud_asr
+                    if cloud_asr.available():
+                        from core.client.ui.recording_toast import preview_active
+                        self._cloud, self._cdec = cloud_asr.CloudStream(preview_active), Decimator3()
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
@@ -131,6 +136,8 @@ class AudioRecorder:
                         self._nsamp += int(_d.size)
                         self._peak = max(self._peak, float(np.max(np.abs(_d))))
                         self._blk_db.append(10 * np.log10(float(np.mean(np.square(_d, dtype=np.float64))) + 1e-12))
+                    if self._cloud is not None:   # 在线识别实时推送 (不受静音门限积攒影响)
+                        self._cloud.feed(self._cdec.process(_d))
                     # 在阈值之前积攒音频数据 (本地改 F6: 开了静音门限时多攒到 silence_gate_hold 秒, 松开时整句判断)
                     _hold = Config.silence_gate_hold if getattr(Config, 'silence_rms_gate', 0) else 0
                     if task['time'] - self._start_time < max(Config.threshold, _hold):
@@ -200,6 +207,8 @@ class AudioRecorder:
                         self._cache.clear()
                         if Config.save_audio and self._file_manager:
                             self._file_manager.finish()
+                        if self._cloud is not None:
+                            self._cloud.cancel()
                         from core.client.ui.recording_toast import close_active
                         close_active()
                         break
@@ -243,6 +252,12 @@ class AudioRecorder:
                     console.print(f'    录音时长：{self._duration:.2f}s')
                     logger.info(f"录音任务完成，任务ID: {self.task_id}, 时长: {self._duration:.2f}s")
                     
+                    # 在线识别结果 (本地改 2026-09-25): 拿到了服务端就跳过本地识别; 超时 / 失败为空, 服务端本地识别兜底
+                    cloud_text = ''
+                    if self._cloud is not None:
+                        cloud_text = await self._cloud.finish(getattr(Config, 'asr_cloud_timeout', 1.5)) or ''
+                        self._cloud = None
+
                     # 告诉服务端音频片段结束了
                     message = AudioMessage(
                         task_id=self.task_id,
@@ -256,11 +271,15 @@ class AudioRecorder:
                         polish=Config.polish, structure=Config.polish_structure,
                         window=getattr(self, '_window', ''),
                         language=Config.language,
+                        text=cloud_text,
                     )
                     asyncio.create_task(self._send_message(message))
                     break
 
         except asyncio.CancelledError:
+            if getattr(self, '_cloud', None) is not None:   # 短按取消: 关掉在线识别
+                self._cloud.cancel()
+                self._cloud = None
             # 录音被取消（短按时间过短 / 单击模式超时取消）。
             # 此时本会话的 begin 以及阈值前积攒的 data 可能还残留在全局
             # queue_in 中，而该队列由所有录音会话共用。若不清理，下一次

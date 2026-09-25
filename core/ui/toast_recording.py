@@ -310,11 +310,13 @@ class ToastWindowRecording:
         # 底下放不下就放到指针上方, 靠屏幕边时收进工作区. 窗口点击穿透, 不挡鼠标
         margin = _bottom_margin()
         info = _cursor_monitor_workarea()
+        self._above, self._workarea = False, None   # 本地改 2026-09-25: 实时识别气泡按胶囊位置摆放 (胶囊在指针上方时气泡也往上)
         if info is not None:
             cx, cy, left, top, right, bottom = info
             x = int(min(max(cx - self._w // 2, left), right - self._w))
             y = cy + margin if cy + margin + self._h <= bottom else cy - margin - self._h
             y = int(min(max(y, top), bottom - self._h))
+            self._above, self._workarea = y < cy, (left, top, right, bottom)
         else:
             # 降级：主屏底部居中
             sw = self.window.winfo_screenwidth()
@@ -323,6 +325,9 @@ class ToastWindowRecording:
             y = int(sh - self._h - margin - 48)
         self._geom = (x, y)
         self.window.geometry(f'{self._w}x{self._h}+{x}+{y}')
+        self._preview, self._bubble, self._bubble_t, self._bubble_off = '', None, None, False   # 实时识别文字 (任意线程写) / 气泡 (Tk 线程)
+        self._scale = capsule_themes.SCALE
+        self.window.bind('<Destroy>', lambda e: e.widget is self.window and self._bubble is not None and self._bubble.destroy(), add='+')
 
         # 预存布局坐标
         self._dot_cx = _PAD_X + _DOT_R
@@ -411,6 +416,7 @@ class ToastWindowRecording:
 
     def _tick_frame(self) -> None:
         self._frame += 1
+        self._bubble_frame()
 
         # 状态切换：update_text 可能从任意线程置 _mode，重绘只在本 Tk 线程做
         if self._mode != self._applied_mode:
@@ -444,6 +450,29 @@ class ToastWindowRecording:
             due = now + step
         self._due = due
         self._after_id = self.window.after(max(1, round((due - time.perf_counter()) * 1000)), self._tick)
+
+    def _bubble_frame(self) -> None:
+        """实时识别气泡: 有文字才建; 胶囊进入完成态 (文字已上屏) 时淡出. 气泡出错不影响胶囊"""
+        now = time.perf_counter()
+        dt = 0.016 if self._bubble_t is None else min(0.1, now - self._bubble_t)
+        self._bubble_t = now
+        if self._bubble_off:
+            return
+        try:
+            if self._bubble is None:
+                if not self._preview:
+                    return
+                from core.ui.live_bubble import LiveBubble
+                self._bubble = LiveBubble(self.window, (*self._geom, self._w, self._h), self._above, self._workarea,
+                                          _capsule_theme_name(), self._scale)
+            if self._applied_mode == 'done':
+                self._bubble.fade_out()
+            self._bubble.tick(self._preview, dt)
+        except Exception as e:
+            failed, self._bubble, self._bubble_off = self._bubble, None, True
+            if failed is not None:
+                failed.destroy()
+            logger.warning(f'实时识别气泡出错, 本句不再显示: {e}')
 
     def _enter_processing(self) -> None:
         self._text = _PROC_LABEL
@@ -583,6 +612,9 @@ class ToastWindowRecording:
         可能由非 Tk 线程调用，因此只做原子赋值（先超时后模式，_tick 察觉模式
         切换时超时值已就绪），重绘在 Tk 线程 _tick 中完成。
         """
+        if new_text.startswith('preview:'):   # 本地改 2026-09-25: 在线识别中间结果, 只存文字, 不切状态
+            self._preview = new_text[8:]
+            return
         if new_text == 'done':            # 本地改 2026-09-24: 文字已上屏 -> 完成态 (主题胶囊播对勾, 经典样式直接关)
             self._mode = 'done'
             return

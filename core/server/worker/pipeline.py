@@ -57,6 +57,45 @@ class TaskPipeline:
         except Exception as e:
             logger.warning(f"简单文本拼接失败: {e}")
 
+    def _finalize(self, task: Task, result: Result) -> Result:
+        """任务结束: 二次整理 -> 格式化 -> token 回填 -> 统计. 本地识别与在线识别 (cloud_text) 共用"""
+        # 任务结束清理与最终格式化
+        raw_text = result.text
+        if task.type == 'mic' and task.polish:
+            # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
+            result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''), getattr(task, 'structure', False))
+        else:
+            polished = False
+        result.text = self.formatter.format(result.text, skip_num=polished)
+        result.text_accu = self.formatter.format(result.text_accu)
+        console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)
+        console.print(f'  格式化后：[green]{result.text}\n', soft_wrap=True)
+
+        logger.debug(f'格式调整：{raw_text} --> {result.text}')
+
+        # 将格式化引入的标点同步回 token 序列
+        if result.tokens and result.text_accu:
+            result.tokens, result.timestamps = sync_tokens_from_text(
+                result.tokens, result.timestamps, result.text_accu
+            )
+        
+        # 如果依然没有 tokens (麦克风跳过了对齐)，则用 text 回退
+        if not result.tokens and result.text:
+            result.text_accu = result.text
+            chars = list(result.text_accu.replace(' ', ''))
+            if chars and result.duration > 0:
+                t_per_char = result.duration / len(chars)
+                result.tokens, result.timestamps = chars, [i * t_per_char for i in range(len(chars))]
+        
+        result.is_final = True
+        
+        # 打印统计
+        process_time = result.time_complete - task.time_submit
+        rtf = process_time / result.duration if result.duration > 0 else 0
+        logger.info(f"任务完成: {task.task_id[:8]}, 时长={result.duration:.2f}s, 耗时={process_time:.3f}s, RTF={rtf:.3f}")
+
+        return result
+
     def process(self, task: Task) -> Result:
         """
         处理单个音频任务片段并返回识别结果
@@ -81,7 +120,15 @@ class TaskPipeline:
                 result.is_final = task.is_final
                 return result
 
-            # 3. 执行识别推理
+            # 3. 执行识别推理 (本地改: 客户端已带在线识别结果时直接用, 整句替换, 不跑本地模型)
+            if task.is_final and task.cloud_text:
+                result.time_start, result.time_submit = task.time_start, task.time_submit
+                result.time_complete = time.time()
+                result.text = result.text_accu = task.cloud_text
+                result.tokens, result.timestamps = [], []
+                logger.info(f'在线识别结果：{task.cloud_text}')
+                return self._finalize(task, result)
+
             stream = self.recognizer.create_stream()
             stream.accept_waveform(task.samplerate, samples)
             self.recognizer.decode_stream(stream, context=task.context, language=task.language)
@@ -132,42 +179,7 @@ class TaskPipeline:
             if not task.is_final:
                 return result
 
-            # 任务结束清理与最终格式化
-            raw_text = result.text
-            if task.type == 'mic' and task.polish:
-                # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
-                result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''), getattr(task, 'structure', False))
-            else:
-                polished = False
-            result.text = self.formatter.format(result.text, skip_num=polished)
-            result.text_accu = self.formatter.format(result.text_accu)
-            console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)
-            console.print(f'  格式化后：[green]{result.text}\n', soft_wrap=True)
-
-            logger.debug(f'格式调整：{raw_text} --> {result.text}')
-
-            # 将格式化引入的标点同步回 token 序列
-            if result.tokens and result.text_accu:
-                result.tokens, result.timestamps = sync_tokens_from_text(
-                    result.tokens, result.timestamps, result.text_accu
-                )
-            
-            # 如果依然没有 tokens (麦克风跳过了对齐)，则用 text 回退
-            if not result.tokens and result.text:
-                result.text_accu = result.text
-                chars = list(result.text_accu.replace(' ', ''))
-                if chars and result.duration > 0:
-                    t_per_char = result.duration / len(chars)
-                    result.tokens, result.timestamps = chars, [i * t_per_char for i in range(len(chars))]
-            
-            result.is_final = True
-            
-            # 打印统计
-            process_time = result.time_complete - task.time_submit
-            rtf = process_time / result.duration if result.duration > 0 else 0
-            logger.info(f"任务完成: {task.task_id[:8]}, 时长={result.duration:.2f}s, 耗时={process_time:.3f}s, RTF={rtf:.3f}")
-
-            return result
+            return self._finalize(task, result)
 
         except Exception as e:
             logger.error(f"推理管线错误: {e}", exc_info=True)

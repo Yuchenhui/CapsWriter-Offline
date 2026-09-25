@@ -38,6 +38,7 @@ class AudioMessage:
     window: str = ''             # 录音开始时的前台窗口 (进程名 + 标题), 只给二次整理当上下文
     structure: bool = False      # 结构化整理: 多件事排成编号列表并换行 (需 polish 非空)
     polish: object = True        # 二次整理: 服务商 id ('' = 不整理); 旧版客户端传 True/False, 服务端用 polish_providers.resolve 兼容
+    text: str = ''               # 客户端已拿到的在线识别结果 (千问流式, 只在最后一条带); 非空时服务端跳过本地识别, 空 = 本地识别兜底
 
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""
@@ -59,6 +60,7 @@ class AudioMessage:
             polish=data.get('polish', True),
             structure=bool(data.get('structure', False)),
             window=data.get('window', ''),
+            text=data.get('text', ''),
         )
 
 

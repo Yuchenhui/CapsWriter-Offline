@@ -71,6 +71,11 @@ class ClientConfig:
     hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
     polish       = ''           # 二次整理服务商: '' = 关; 'deepseek' / 'minimax' (见 core/tools/polish_providers.py). 托盘「二次整理」改过后以 user_state.json 为准
+    # 识别引擎 (本地改 2026-09-25): 'cloud' = 千问在线流式 (按住时气泡实时出字, 松开约 0.1s 出结果, 失败自动用本地); 'local' = 本地 Qwen3-ASR.
+    # 托盘「识别」切换, 以 user_state.json 为准. 需要环境变量 DASHSCOPE_API_KEY. 费用按音频时长, 实测一天约 35 分钟音频, 几毛钱
+    asr_engine = 'cloud'
+    asr_cloud_model = 'qwen-audio-3.1-asr-flash-streaming'   # 刷新间隔中位 0.9s; qwen3-asr-flash-realtime 固定 2s 太卡
+    asr_cloud_timeout = 1.5     # 松开后等在线结果的上限 (秒), 超时用本地识别
     polish_structure = False    # 结构化整理: 多件事排成编号列表并换行 (托盘「二次整理」里勾选; 需要先选服务商)
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断

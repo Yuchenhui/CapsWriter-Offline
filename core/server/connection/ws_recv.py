@@ -151,6 +151,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 language=msg.language,
                 polish=msg.polish, structure=msg.structure,
                 window=msg.window,
+                cloud_text=msg.text,
             )
             queue_in.put(task)
             logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")
