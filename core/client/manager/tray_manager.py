@@ -152,24 +152,23 @@ class TrayManager:
         from core.tools.polish_providers import PROVIDERS
         from core.tools import polish_usage as pu
         data = pu.load()
-        (t_tok, t_n), (a_tok, a_n) = pu.today(data), pu.total(data)
         since = min(data) if data else ''
         noop = lambda: None
         def name(pid, p):
-            tok = pu.today(data, pid)[0]
-            return f"{p['name']}  ·  今日 {pu.fmt(tok)}" if tok else p['name']
-        return [(f'今日 {t_tok:,} token（{t_n} 次）', noop, noop),
-                (f'累计 {a_tok:,} token（{a_n} 次，自 {since[5:]} 起）' if since else '累计 0 token', noop, noop), None,
+            s = pu.today(data, pid)
+            return f"{p['name']}  ·  今日 {pu.brief(s)}" if s['calls'] else p['name']
+        return [(f'今日  {pu.detail(pu.today(data))}', noop, noop),
+                (f'累计  {pu.detail(pu.total(data))}（自 {since[5:]} 起）' if since else '累计 0', noop, noop), None,
                 ('关', self._polish_action(''), lambda: not Config.polish)] + [
             (name(pid, p), self._polish_action(pid), self._polish_checked(pid)) for pid, p in PROVIDERS.items()] + [
             None, ('结构化整理（编号 / 换行）', self._toggle_structure, lambda: Config.polish_structure)]
 
     @staticmethod
     def _polish_label(_item=None) -> str:
-        """托盘一级菜单文字: 二次整理 · 今日 N token (pystray 每次重建菜单时调用)"""
+        """托盘一级菜单文字: 二次整理 · 今日 ↑上行 ↓下行 (pystray 每次重建菜单时调用)"""
         from core.tools import polish_usage as pu
-        tok = pu.today(pu.load())[0]
-        return f'二次整理  ·  今日 {pu.fmt(tok)} token' if tok else '二次整理'
+        s = pu.today(pu.load())
+        return f'二次整理  ·  今日 {pu.brief(s)}' if s['calls'] else '二次整理'
 
     @staticmethod
     def _theme_items():
