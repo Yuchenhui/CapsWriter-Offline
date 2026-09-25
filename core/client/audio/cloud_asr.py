@@ -19,6 +19,7 @@ import base64
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from typing import Callable, Optional
@@ -397,11 +398,89 @@ class VolcStream(CloudStream):
         self._finished.set()
 
 
+# 各非流式引擎的接口主机 (预连接用)
+_HOSTS = {'asr-1.0': 'api.minimaxi.com', 'glm-asr-2512': 'open.bigmodel.cn', 'qwen3-asr-flash': 'dashscope.aliyuncs.com',
+          'stepaudio-2.5-asr': 'api.stepfun.com', 'mimo-v2.5-asr': 'token-plan-cn.xiaomimimo.com'}
+
+
+class Preconn:
+    """录音开始时就建好到识别接口的 HTTPS 连接: TCP + TLS 握手 (实测 0.1s, 偶尔 0.4-0.7s) 与说话同时进行, 松开后直接发.
+    约束 (用户要求别让连接变多): 全局同时最多一条 (新建时先关掉上一条); 每句只用一次, 松开后识别完 / 没说话 / 取消都关;
+    连接还没建好就松开了、设了系统代理、建连失败 -> 不用它, 走原来的 urlopen."""
+    _current = None
+    _glock = threading.Lock()
+
+    def __init__(self, host: str):
+        self.host, self._conns, self._taken, self._closed = host, [], False, False
+        self._lock = threading.Lock()
+        with Preconn._glock:
+            prev, Preconn._current = Preconn._current, self
+        if prev is not None:                  # 锁外关 (close 里还要拿 _glock)
+            prev.close()
+        threading.Thread(target=self._connect, daemon=True, name='asr-preconn').start()
+
+    def _connect(self):
+        import http.client
+        c = http.client.HTTPSConnection(self.host, timeout=30)
+        try:
+            c.connect()
+        except OSError as e:
+            logger.debug(f'预连接 {self.host} 失败, 松开后照常新建连接: {e}')
+            c.close()
+            return
+        with self._lock:
+            if self._closed:
+                c.close()
+            else:
+                self._conns.append(c)
+
+    def take(self):
+        """第一个调用者拿走建好的连接; 还没建好 / 已关 / 已被拿走 -> None"""
+        with self._lock:
+            if self._closed or self._taken or not self._conns:
+                return None
+            self._taken = True
+            return self._conns[0]
+
+    def adopt(self, conn) -> None:
+        """重连出来的新连接也登记, 统一由 close() 关"""
+        with self._lock:
+            self._conns.append(conn)
+            if self._closed:
+                conn.close()
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            conns, self._conns = self._conns, []
+        for c in conns:
+            try:
+                c.close()
+            except Exception:
+                pass
+        with Preconn._glock:
+            if Preconn._current is self:
+                Preconn._current = None
+
+    @staticmethod
+    def open_count() -> int:
+        """测试用: 当前挂着几条预连接"""
+        with Preconn._glock:
+            cur = Preconn._current
+        if cur is None:
+            return 0
+        with cur._lock:
+            return len(cur._conns)
+
+
 class BatchASR:
     """非流式: 录音时只攒 16 kHz 样点, 松开后编成 wav 整段上传. 同步 HTTP 放线程里跑, 不堵事件循环"""
 
     def __init__(self, model: str):
         self._model, self._chunks, self._done = model, [], False
+        import urllib.request
+        host = _HOSTS.get(model)
+        self._pre = Preconn(host) if host and not urllib.request.getproxies().get('https') else None
 
     def feed(self, pcm16k: np.ndarray) -> None:
         if not self._done:
@@ -409,9 +488,12 @@ class BatchASR:
 
     def cancel(self) -> None:
         self._done = True
+        if self._pre is not None:
+            self._pre.close()
 
     async def finish(self, timeout: float) -> Optional[str]:
         if self._done or not self._chunks:
+            self.cancel()
             return None
         self._done = True
         pcm = np.concatenate(self._chunks)
@@ -424,6 +506,8 @@ class BatchASR:
             logger.warning(f'在线识别 {self._model} 失败, 用本地识别 ({detail})')
             alert(kind)
             return None
+        finally:
+            self.cancel()                     # 用完即关 (超时时后台线程还在读, 关掉连接让它立刻结束)
         try:
             from core.tools import asr_usage
             asr_usage.add(self._model, {'seconds': billed}, len(pcm) / 16000)
@@ -446,6 +530,36 @@ class BatchASR:
             res = list(ex.map(lambda x: self._recognize(_wav(x)), parts))
         return ''.join(t for t, _ in res), sum(b for _, b in res)
 
+    def _open(self, req):
+        """代替 urllib.request.urlopen: 有预连接且主机对得上就用它 (省一次 TCP + TLS 握手), 否则照旧新建"""
+        import http.client
+        import io
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        u = urllib.parse.urlsplit(req.full_url)
+        conn = self._pre.take() if self._pre is not None and u.hostname == self._pre.host else None
+        if conn is None:
+            return urllib.request.urlopen(req, timeout=30)
+        path = u.path + (f'?{u.query}' if u.query else '')
+        headers = dict(req.header_items())
+        for attempt in (1, 2):
+            try:
+                conn.request(req.get_method(), path, body=req.data, headers=headers)
+                resp = conn.getresponse()
+                break
+            except (http.client.CannotSendRequest, OSError) as e:   # RemoteDisconnected / WinError 10053 等都是 OSError
+                conn.close()                  # 录音太久, 服务器把空闲连接断了: 重建一次
+                if attempt == 2 or isinstance(e, TimeoutError):     # 超时不重试 (否则等两倍时间)
+                    raise
+                logger.debug(f'预连接已被服务器断开 ({type(e).__name__}), 重建后再发')
+                conn = http.client.HTTPSConnection(u.hostname, timeout=30)
+                self._pre.adopt(conn)
+        if resp.status >= 400:
+            body = resp.read()
+            raise urllib.error.HTTPError(req.full_url, resp.status, resp.reason, resp.headers, io.BytesIO(body))
+        return resp
+
     def _recognize(self, wav: bytes) -> tuple:
         """-> (文字, 计费秒数)"""
         import urllib.request
@@ -460,7 +574,7 @@ class BatchASR:
             req = urllib.request.Request('https://api.minimaxi.com/v1/speech_to_text', body,
                                          {'Authorization': 'Bearer ' + api_key('minimax'),
                                           'Content-Type': f'multipart/form-data; boundary={b}'})
-            r = json.load(urllib.request.urlopen(req, timeout=30))
+            r = json.load(self._open(req))
             if not r.get('text'):   # 诊断 (2026-09-25 实测连续 3 句返回空, 离线重放同接口却正常): 记下原始返回和送出的音频
                 logger.warning(f'MiniMax 返回空文字: {json.dumps(r, ensure_ascii=False)[:300]}')
                 try:
@@ -481,7 +595,7 @@ class BatchASR:
             req = urllib.request.Request('https://open.bigmodel.cn/api/coding/paas/v4/audio/transcriptions', body,
                                          {'Authorization': 'Bearer ' + api_key('zhipu'),
                                           'Content-Type': f'multipart/form-data; boundary={b}'})
-            r = json.load(urllib.request.urlopen(req, timeout=30))
+            r = json.load(self._open(req))
             text = re.sub(r'\s*#+\s*$', '', r.get('text') or '')     # 几乎没声音时会吐出 "#" (2026-09-26 实测)
             return text, (len(wav) - 44) / 32000
         if self._model.startswith('stepaudio'):  # 阶跃 StepFun: HTTP + SSE, 整段上传, 按量地址 (没订 Step Plan); 术语表作热词
@@ -494,7 +608,7 @@ class BatchASR:
             req = urllib.request.Request('https://api.stepfun.com/v1/audio/asr/sse', json.dumps(body).encode(), {
                 'Authorization': 'Bearer ' + env_key('STEP_API_KEY'), 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
             text = ''
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with self._open(req) as r:
                 for raw in r:
                     line = raw.decode('utf-8', 'replace').strip()
                     if not line.startswith('data:'):
@@ -515,7 +629,7 @@ class BatchASR:
                 'messages': [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {
                     'data': 'data:audio/wav;base64,' + base64.b64encode(wav).decode()}}]}]}).encode(),
                 {'Authorization': 'Bearer ' + api_key('mimo'), 'Content-Type': 'application/json'})
-            r = json.load(urllib.request.urlopen(req, timeout=30))
+            r = json.load(self._open(req))
             return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
         from core.tools.terms import load_terms  # 千问 qwen3-asr-flash: OpenAI 兼容, 术语表放 system 作上下文
         messages = [{'role': 'user', 'content': [{'type': 'input_audio', 'input_audio': {
@@ -528,7 +642,7 @@ class BatchASR:
                                                  'asr_options': {'enable_itn': True}}).encode(),
                                      {'Authorization': 'Bearer ' + _dashscope_key(),
                                       'Content-Type': 'application/json'})
-        r = json.load(urllib.request.urlopen(req, timeout=30))
+        r = json.load(self._open(req))
         return r['choices'][0]['message']['content'] or '', (r.get('usage') or {}).get('seconds', 0)
 
 
