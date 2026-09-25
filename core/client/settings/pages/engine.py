@@ -5,16 +5,19 @@ from core.client.settings.widgets import ChoiceGroup, Segmented, Toggle, heading
 
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
-CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 松开后 0.2 秒 · 边说边出字',
-                'doubao-stream': '¥1/小时（有试用额度）· 松开后 0.9 秒',
-                'doubao-batch': '¥1/小时（与流式共用额度）· 1 秒 · 比豆包流式准',
-                'qwen-batch': '¥0.79/小时 · 0.5 秒',
-                'zhipu-batch': '¥3.6/小时 · 0.5 秒',
-                'mimo-batch': '套餐内 · 1.2 秒',
-                'minimax-batch': '套餐内 · 1.5–2 秒 · 声音小会识别为空'}
-POLISH = (('', '关', '松开后约 0.4 秒出字'), ('deepseek', 'DeepSeek V4 Flash', '约 +0.6 秒'),
-          ('minimax', 'MiniMax M3', '约 +1.1 秒'), ('mimo', 'MiMo V2.6 Flash', '约 +0.7 秒，偶尔超时'),
-          ('kimi', 'Kimi K3', '约 +1.5 秒，评测 36/38'), ('zhipu', 'GLM-5.3 Flash', '约 +1.3 秒，评测 35/38'))
+# 只写价格 + 评分. 识别: pc-tweaks windows/capswriter/asr-benchmark.md (12 个关键词, 低/中/高三档平均);
+# 整理: tests/polish_eval.py 38 题. 均为 2026-09-26 实测
+CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 10.3/12',
+                'doubao-stream': '¥1/小时 · 7.7/12',
+                'doubao-batch': '¥1/小时 · 9.0/12',
+                'qwen-batch': '¥0.79/小时 · 10.7/12',
+                'zhipu-batch': '¥3.6/小时 · 10.0/12',
+                'mimo-batch': '套餐内 · 10.0/12',
+                'minimax-batch': '套餐内 · 10.0/12'}
+LOCAL_SCORE = {'qwen_asr': '免费 · 9.0/12', 'fun_asr_nano': '免费 · 5.7/12', 'sensevoice': '免费 · 5.0/12'}
+POLISH = (('', '关', ''), ('deepseek', 'DeepSeek V4 Flash', '按量 · 37/38'),
+          ('minimax', 'MiniMax M3', '套餐内 · 35/38'), ('mimo', 'MiMo V2.6 Flash', '套餐内 · 33/38'),
+          ('kimi', 'Kimi K3', '套餐内 · 36/38'), ('zhipu', 'GLM-5.3 Flash', '套餐内 · 35/38'))
 
 
 def build(parent, pal, ctx):
@@ -32,7 +35,7 @@ def build(parent, pal, ctx):
             w.destroy()
         if m == 'local':
             models = ctx.local_models()
-            items = [{'key': k, 'title': name, 'detail': '已安装' if ok else '未安装', 'disabled': not ok}
+            items = [{'key': k, 'title': name, 'detail': LOCAL_SCORE.get(k, '') if ok else '未安装', 'disabled': not ok}
                      for k, name, ok in models]
             section(body, pal, '本地模型（免费，不联网）').pack(anchor='w', pady=(0, 8))
             ChoiceGroup(body, pal, items, ctx.local_model(), lambda k: ctx.do('set_local_model', k)).pack(fill='x')
@@ -55,9 +58,6 @@ def build(parent, pal, ctx):
                 g = ChoiceGroup(body, pal, items, last_cloud[0], pick)
                 g.pack(fill='x')
                 groups.append(g)
-            local = dict((k, n) for k, n, _ in ctx.local_models()).get(ctx.local_model(), '')
-            tk.Label(body, text=f'云端失败时用本地「{local}」兜底；一直用云端时本地模型闲置 60 秒后自动释放显存',
-                     font=font(9), bg=pal.bg, fg=pal.muted).pack(anchor='w', pady=(6, 0))
 
     def switch(m):                        # 本地 / 云端 就是总开关: 切过去立即生效
         ctx.do('set_engine', 'local' if m == 'local' else last_cloud[0])
