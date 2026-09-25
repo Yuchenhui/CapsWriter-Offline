@@ -44,7 +44,7 @@ class TrayManager:
                 ('麦克风', 'submenu', self._mic_items),
                 ('麦克风校准…', self._start_calibration),
                 ('胶囊主题', 'submenu', self._theme_items),
-                ('识别', 'submenu', self._asr_items),
+                (self._asr_label, 'submenu', self._asr_items),   # 文字带今日在线识别费用
                 ('模型', 'submenu', self._model_items),
                 ('词库', 'submenu', self._wordlist_items),
             ]
@@ -173,8 +173,19 @@ class TrayManager:
                 user_state.save()
                 logger.info(f'识别引擎: {v}')
             return action
-        return [(label, pick(v), lambda v=v: Config.asr_engine == v)
-                for label, v in (('千问在线（流式，实时出字）', 'cloud'), ('本地 Qwen3-ASR', 'local'))]
+        from core.tools import asr_usage as au
+        data, noop = au.load(), (lambda: None)
+        stats = [(f'{name}  {au.line(au.period(data, pre))}', noop, noop)
+                 for name, pre in (('今日', time.strftime('%Y-%m-%d')), ('本月', time.strftime('%Y-%m')), ('累计', ''))]
+        return stats + [None] + [(label, pick(v), lambda v=v: Config.asr_engine == v)
+                                 for label, v in (('千问在线（流式，实时出字）', 'cloud'), ('本地 Qwen3-ASR', 'local'))]
+
+    @staticmethod
+    def _asr_label(_item=None) -> str:
+        """托盘一级菜单: 识别 · 今日 ¥0.12 (在线识别今天有用量时)"""
+        from core.tools import asr_usage as au
+        s = au.period(au.load(), time.strftime('%Y-%m-%d'))
+        return f"识别  ·  今日 {au.yuan(s['yuan'])}" if s['calls'] else '识别'
 
     @staticmethod
     def _polish_label(_item=None) -> str:

@@ -45,6 +45,7 @@ class CloudStream:
         self._sentences: list[str] = []       # 已结束的句子
         self._current = ''                    # 正在说的这句 (会被改写)
         self._shown = ''
+        self._usage, self._samples, self._recorded = None, 0, False   # 计费: 最后一次报的累计 usage / 送出的样点数
         self._t0 = time.perf_counter()
         self._tasks = [asyncio.create_task(self._run())]
 
@@ -54,6 +55,7 @@ class CloudStream:
         if self._failed:
             return
         data = (np.clip(pcm16k, -1, 1) * 32767).astype(np.int16).tobytes()
+        self._samples += len(pcm16k)
         if self._started.is_set() and self._ws is not None:
             self._tasks.append(asyncio.create_task(self._send(data)))
         else:
@@ -81,6 +83,13 @@ class CloudStream:
         return text
 
     def cancel(self) -> None:
+        if not self._recorded and self._samples:   # 每句只记一次账 (正常结束 / 超时 / 静音取消都经过这里)
+            self._recorded = True
+            try:
+                from core.tools import asr_usage
+                asr_usage.add(getattr(Config, 'asr_cloud_model', ''), self._usage, self._samples / 16000)
+            except Exception as e:
+                logger.debug(f'记录在线识别用量失败: {e}')
         self._failed = True
         for tk in self._tasks:
             tk.cancel()
@@ -125,6 +134,8 @@ class CloudStream:
                     self._pending.clear()
                     self._started.set()
                 elif name == 'result-generated':
+                    if ev['payload'].get('usage'):
+                        self._usage = ev['payload']['usage']      # 整段累计值, 取最后一次
                     s = ev['payload'].get('output', {}).get('sentence') or {}
                     if s.get('heartbeat'):
                         continue

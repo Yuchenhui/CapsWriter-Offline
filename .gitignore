@@ -193,3 +193,5 @@ models/**/*.cfg
 polish_usage.json
 polish_usage.tmp
 polish_samples.jsonl
+asr_usage.json
+asr_usage.tmp
