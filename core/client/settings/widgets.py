@@ -2,6 +2,8 @@
 """设置窗口自绘控件: 只用 Tk (Frame / Label / Canvas), 配色取 Palette"""
 import tkinter as tk
 
+from PIL import Image, ImageDraw, ImageTk
+
 FONT = 'Microsoft YaHei UI'
 
 
@@ -9,6 +11,42 @@ def font(size: int, bold: bool = False):
     """size 按 pt 写 (设计稿习惯), 转成像素负字号: 不受根窗口 tk scaling (=2) 影响, 与预览一致"""
     px = -round(size * 96 / 72)
     return (FONT, px, 'bold') if bold else (FONT, px)
+
+
+_SS = 4          # 抗锯齿超采样: Tk 画布画圆没有抗锯齿 (边缘一格格的), 圆点 / 开关用 PIL 4 倍画再缩小
+_img_cache = {}
+
+
+def _rgba(h: str, a: int = 255) -> tuple:
+    h = h.lstrip('#')
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) + (a,)
+
+
+def _aa(key, w, h, draw):
+    """缓存的抗锯齿图: draw(ImageDraw, k) 在 k 倍画布上画"""
+    img = _img_cache.get(key)
+    if img is None:
+        big = Image.new('RGBA', (w * _SS, h * _SS), (0, 0, 0, 0))
+        draw(ImageDraw.Draw(big), _SS)
+        img = _img_cache[key] = ImageTk.PhotoImage(big.resize((w, h), Image.LANCZOS))
+    return img
+
+
+def radio_image(pal, on: bool, bg: str):
+    def draw(d, k):
+        d.ellipse((2 * k, 2 * k, 16 * k, 16 * k), fill=_rgba(bg), outline=_rgba(pal.accent if on else pal.border), width=2 * k)
+        if on:
+            d.ellipse((5.5 * k, 5.5 * k, 12.5 * k, 12.5 * k), fill=_rgba(pal.accent))
+    return _aa(('radio', pal.accent, pal.border, bg, on), 18, 18, draw)
+
+
+def toggle_image(pal, on: bool, bg: str):
+    def draw(d, k):
+        track = pal.accent if on else pal.border
+        d.rounded_rectangle((1 * k, 1 * k, 41 * k, 23 * k), radius=11 * k, fill=_rgba(track))
+        x = 30 if on else 12
+        d.ellipse(((x - 9) * k, 3 * k, (x + 9) * k, 21 * k), fill=(255, 255, 255, 255))
+    return _aa(('toggle', pal.accent, pal.border, bg, on), 42, 24, draw)
 
 
 class Card(tk.Frame):
@@ -38,7 +76,7 @@ class Choice(tk.Frame):
     def __init__(self, parent, pal, key, title, detail='', selected=False, disabled=False, warn='', on_pick=None):
         super().__init__(parent, bg=pal.surface, cursor='' if disabled else 'hand2')
         self.pal, self.key, self.on_pick, self.disabled = pal, key, on_pick, disabled
-        self.dot = tk.Canvas(self, width=18, height=18, bg=pal.surface, highlightthickness=0)
+        self.dot = tk.Label(self, bg=pal.surface, bd=0)
         self.dot.pack(side='left', padx=(10, 10), pady=10)
         fg = pal.muted if disabled else pal.fg
         self.title = tk.Label(self, text=title, font=font(11), bg=pal.surface, fg=fg, anchor='w')
@@ -53,14 +91,11 @@ class Choice(tk.Frame):
         self.set(selected)
 
     def set(self, on: bool):
-        p, c = self.pal, self.dot
+        p = self.pal
         bg = p.hover if on else p.surface
         for w in self.winfo_children() + [self]:
             w.configure(bg=bg)
-        c.delete('all')
-        c.create_oval(2, 2, 16, 16, outline=p.accent if on else p.border, width=2)
-        if on:
-            c.create_oval(6, 6, 12, 12, fill=p.accent, outline='')
+        self.dot.configure(image=radio_image(p, on, bg))
 
     def _click(self, _e):
         if not self.disabled and self.on_pick:
@@ -82,18 +117,22 @@ class ChoiceGroup(tk.Frame):
             self.rows[it['key']] = r
         self.on_pick = on_pick
 
-    def _pick(self, key):
+    def select(self, key):
+        """只改显示, 不触发 on_pick (几组共用一个选中状态时互相同步用)"""
         for k, r in self.rows.items():
             r.set(k == key)
+
+    def _pick(self, key):
+        self.select(key)
         self.on_pick(key)
 
 
-class Toggle(tk.Canvas):
+class Toggle(tk.Label):
     """开关. on_change(bool)"""
 
     def __init__(self, parent, pal, value=False, on_change=None, bg=None):
-        super().__init__(parent, width=42, height=24, bg=bg or pal.surface, highlightthickness=0, cursor='hand2')
-        self.pal, self.value, self.on_change = pal, value, on_change
+        super().__init__(parent, bg=bg or pal.surface, bd=0, cursor='hand2')
+        self.pal, self.value, self.on_change, self.bg = pal, value, on_change, bg or pal.surface
         self.bind('<Button-1>', lambda e: self.set(not self.value, True))
         self._draw()
 
@@ -104,14 +143,7 @@ class Toggle(tk.Canvas):
             self.on_change(v)
 
     def _draw(self):
-        p = self.pal
-        self.delete('all')
-        track = p.accent if self.value else p.border
-        self.create_oval(1, 1, 23, 23, fill=track, outline='')
-        self.create_oval(19, 1, 41, 23, fill=track, outline='')
-        self.create_rectangle(12, 1, 30, 23, fill=track, outline='')
-        x = 30 if self.value else 12
-        self.create_oval(x - 9, 3, x + 9, 21, fill='#ffffff', outline='')
+        self.configure(image=toggle_image(self.pal, self.value, self.bg))
 
 
 class Segmented(tk.Frame):

@@ -19,6 +19,7 @@ def build(parent, pal, ctx):
     st = ctx.state()
     eng = cloud_asr._ALIASES.get(st['asr_engine'], st['asr_engine'])
     mode = 'local' if eng == 'local' else 'cloud'
+    last_cloud = [eng if eng != 'local' else 'qwen-stream']   # 从本地切回云端时恢复上次的云端引擎
     body = tk.Frame(f, bg=pal.bg)
 
     def render(m):
@@ -32,6 +33,13 @@ def build(parent, pal, ctx):
             ChoiceGroup(body, pal, items, ctx.local_model(), lambda k: ctx.do('set_local_model', k)).pack(fill='x')
             tk.Label(body, text='切换本地模型会重启识别服务，约 5–15 秒', font=font(9), bg=pal.bg, fg=pal.muted).pack(anchor='w', pady=(6, 0))
         else:
+            groups = []                        # 流式 / 非流式两组共用一个选中状态: 选中一组里的, 另一组取消
+
+            def pick(k):
+                for g in groups:
+                    g.select(k)
+                last_cloud[0] = k
+                ctx.do('set_engine', k)
             for kind, label in (('stream', '流式 · 边说边出字'), ('batch', '非流式 · 松开后识别')):
                 items = []
                 for k, (name, knd, _, env) in cloud_asr.ENGINES.items():
@@ -39,12 +47,18 @@ def build(parent, pal, ctx):
                         items.append({'key': k, 'title': name, 'detail': CLOUD_DETAIL.get(k, ''),
                                       'warn': '' if cloud_asr._has_key(env) else f'缺 {env}'})
                 section(body, pal, label).pack(anchor='w', pady=(0 if kind == 'stream' else 16, 8))
-                ChoiceGroup(body, pal, items, eng, lambda k: ctx.do('set_engine', k)).pack(fill='x')
+                g = ChoiceGroup(body, pal, items, last_cloud[0], pick)
+                g.pack(fill='x')
+                groups.append(g)
             local = dict((k, n) for k, n, _ in ctx.local_models()).get(ctx.local_model(), '')
             tk.Label(body, text=f'云端失败时用本地「{local}」兜底；一直用云端时本地模型闲置 60 秒后自动释放显存',
                      font=font(9), bg=pal.bg, fg=pal.muted).pack(anchor='w', pady=(6, 0))
 
-    Segmented(f, pal, (('local', '本地模型'), ('cloud', '云端模型')), mode, lambda m: render(m)).pack(anchor='w')
+    def switch(m):                        # 本地 / 云端 就是总开关: 切过去立即生效
+        ctx.do('set_engine', 'local' if m == 'local' else last_cloud[0])
+        render(m)
+
+    Segmented(f, pal, (('local', '本地模型'), ('cloud', '云端模型')), mode, switch).pack(anchor='w')
     body.pack(fill='x', pady=(16, 0))
     render(mode)
 
