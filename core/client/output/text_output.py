@@ -18,6 +18,7 @@ from pynput import keyboard as pynput_keyboard
 
 from config_client import ClientConfig as Config
 from core.tools.window_detector import get_active_window_info
+from core.client.output import carry_punc
 from . import logger
 
 
@@ -42,9 +43,11 @@ class TextOutput:
     
     提供文本输出功能，支持模拟打字和粘贴两种方式。
     """
-    
+
+    last_stripped = ''   # 最近一次 strip_punc 删掉的末尾标点, 供延迟补标点 (carry_punc) 用
+
     @staticmethod
-    def strip_punc(text: str) -> str:
+    def strip_punc(text: str, record: bool = True) -> str:
         """
         消除末尾最后一个标点
 
@@ -58,6 +61,8 @@ class TextOutput:
         Returns:
             处理后的文本
         """
+        if record:
+            TextOutput.last_stripped = ''
         if not text or not Config.trash_punc:
             return text
 
@@ -72,6 +77,8 @@ class TextOutput:
             return text
 
         clean_text = re.sub(f"(?<=.)[{Config.trash_punc}]$", "", text)
+        if record and clean_text != text:
+            TextOutput.last_stripped = text[-1]
         return clean_text
     
     async def output(self, text: str, paste: Optional[bool] = None) -> None:
@@ -86,7 +93,8 @@ class TextOutput:
         """
         if not text:
             return
-        
+        text = carry_punc.prefixed(text)
+
         # 确定输出方式
         if paste is None:
             paste = Config.paste

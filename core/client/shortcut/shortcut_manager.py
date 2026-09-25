@@ -21,6 +21,7 @@ from core.client.shortcut.key_mapper import KeyMapper
 from core.client.shortcut.emulator import ShortcutEmulator
 from core.client.shortcut.event_handler import ShortcutEventHandler
 from core.client.shortcut.task import ShortcutTask
+from core.client.output import carry_punc
 
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -100,6 +101,10 @@ class ShortcutManager:
 
             key_name = KeyMapper.vk_to_name(data.vkCode)
 
+            # 延迟补标点: 人工按键 (非注入, 非快捷键) 说明用户动过光标/内容
+            if msg in KEY_DOWN_MESSAGES and not (data.flags & 0x10) and key_name not in self.tasks:
+                carry_punc.touch()
+
             # 防自捕获检查
             if self._check_emulating(key_name, msg):
                 return True
@@ -163,6 +168,10 @@ class ShortcutManager:
     def create_mouse_filter(self):
         """创建鼠标事件过滤器"""
         def win32_event_filter(msg, data):
+            # 延迟补标点: 人工左/右/中键点击可能移动光标
+            if msg in (0x0201, 0x0204, 0x0207) and not (data.flags & 0x01):   # WM_L/R/MBUTTONDOWN, 非注入
+                carry_punc.touch()
+
             # 只处理 XBUTTON 消息
             if msg not in MOUSE_MESSAGES:
                 return True

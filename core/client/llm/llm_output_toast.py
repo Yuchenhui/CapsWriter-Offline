@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 async def handle_toast_mode(handler, text: str, role_config=None, matched_hotwords=None, content=None) -> tuple:
     """Toast 浮动窗口模式"""
+    from core.client.output.text_output import TextOutput
+    TextOutput.last_stripped = ''
     from core.ui.toast import ToastMessageManager, ToastMessage
     # 兼容性检测
     if not role_config or content is None:

@@ -16,6 +16,7 @@ from core.client.state import console
 from core.protocol import RecognitionMessage
 
 from core.client.output.text_output import TextOutput
+from core.client.output import carry_punc
 from core.tools.window_detector import get_active_window_info
 import keyboard
 from . import logger
@@ -235,7 +236,7 @@ class ResultProcessor:
         console.print(f'    转录时延：{delay:.2f}s{hotword_label}')
 
         # 先显示原始识别结果
-        original_text_stripped = TextOutput.strip_punc(original_text)
+        original_text_stripped = TextOutput.strip_punc(original_text, record=False)   # 仅显示用
         console.print(f'    识别结果：[green]{original_text_stripped}')
 
         # 如果发生了热词替换，显示替换后的结果
@@ -270,11 +271,14 @@ class ResultProcessor:
             logger.debug(f"检测到兼容性应用: {process_name}，使用粘贴模式")
 
         # 自动回车检测
+        auto_enter = False
         for app, delay in Config.enter_apps:
             if app.lower() == process_name:
+                auto_enter = True
                 asyncio.create_task(_auto_enter(delay))
 
-        # LLM 处理和输出
+        # LLM 处理和输出 (carry_punc: 接着上一句写时, 第一次写出前补上上一句被删的标点)
+        carry_punc.arm()
         llm_result = None
         if Config.llm_enabled:
             llm_result = await self.app.llm.process_and_output(
@@ -291,6 +295,7 @@ class ResultProcessor:
             await self.output.output(text, paste=paste)
             self.state.set_output_text(text)
             broadcast_output_udp(text)
+        carry_punc.remember('' if auto_enter else TextOutput.last_stripped)   # 自动回车 = 已发出, 下一句是新消息
 
         # 保存录音与写入 md 文件
         file_audio = None

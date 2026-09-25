@@ -11,6 +11,7 @@ import keyboard
 from config_client import ClientConfig as Config
 from core.tools.asyncio_to_thread import to_thread
 from core.client.output.text_output import TextOutput
+from core.client.output import carry_punc
 from core.client.clipboard import paste_text
 from core.client.ui.recording_toast import close_active
 from . import logger
@@ -53,7 +54,7 @@ async def _process_paste(handler, role_config, content, matched_hotwords) -> tup
         return ("", 0, 0.0)
 
     final_text = TextOutput.strip_punc(polished_text or content)
-    await paste_text(final_text, restore_clipboard=Config.restore_clip)
+    await paste_text(carry_punc.prefixed(final_text), restore_clipboard=Config.restore_clip)
     return (final_text, token_count, gen_time)
 
 
@@ -90,7 +91,7 @@ async def _process_streaming(handler, role_config, content, matched_hotwords) ->
 
         if content_to_write:
             logger.debug(f"output_text: keyboard.write '{content_to_write}'")
-            keyboard.write(content_to_write)
+            keyboard.write(carry_punc.prefixed(content_to_write))
             pending_buffer = trailing
         else:
             pending_buffer = trailing
@@ -109,7 +110,7 @@ async def _process_streaming(handler, role_config, content, matched_hotwords) ->
     if not chunks:
         final_text = TextOutput.strip_punc(content)
         logger.debug(f"output_text: keyboard.write '{final_text}' (降级)")
-        keyboard.write(final_text)
+        keyboard.write(carry_punc.prefixed(final_text))
         return (final_text, 0, 0.0)
     
     # 如果 LLM 只输出标点，会被拦截，就要做补偿输出
@@ -122,6 +123,7 @@ async def _process_streaming(handler, role_config, content, matched_hotwords) ->
 
 async def output_text(text: str, paste: bool = None):
     """输出文本（根据 paste 或 Config.paste 选择方式）"""
+    text = carry_punc.prefixed(text)
     if paste:
         await paste_text(text, restore_clipboard=Config.restore_clip)
     else:
