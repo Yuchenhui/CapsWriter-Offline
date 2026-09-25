@@ -38,9 +38,44 @@ def add(pid: str, usage: dict) -> None:
         if hit is not None:   # in_c: 报了缓存字段的调用的上行, 算命中率的分母 (09-25 之前的旧记录没有, 不能拉低比例)
             d['hit'] = d.get('hit', 0) + int(hit)
             d['in_c'] = d.get('in_c', 0) + int(usage.get('prompt_tokens') or 0)
+        p_in, p_out, p_hit = int(usage.get('prompt_tokens') or 0), int(usage.get('completion_tokens') or 0), int(hit or 0)
+        y = call_cost(pid, p_in, p_hit, p_out, time.time())
+        if y is not None:     # 按调用当时的时段计价后累加 (DeepSeek 分高峰 / 空闲, 按天汇总后就分不出了)
+            d['yuan'] = round(d.get('yuan', 0.0) + y, 8)
         tmp = FILE.with_suffix('.tmp')
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')
         os.replace(tmp, FILE)
+
+
+# 计费 (2026-09-25 查): DeepSeek 官方价 元/百万 token (缓存命中, 缓存未命中, 输出); 高峰 = 北京时间工作日 9-12, 14-18 点
+# (法定节假日也算空闲, 这里不识别节假日, 节假日按高峰计 -> 宁可高估). MiniMax / MiMo 走订阅额度, 不折算成钱.
+PRICES = {'deepseek': {'peak': (0.04, 2.0, 8.0), 'idle': (0.02, 1.0, 4.0)}}
+PLAN = {'minimax', 'mimo'}
+
+
+def _peak(ts: float) -> bool:
+    bj = time.gmtime(ts + 8 * 3600)                    # 北京时间
+    return bj.tm_wday < 5 and (9 <= bj.tm_hour < 12 or 14 <= bj.tm_hour < 18)
+
+
+def call_cost(pid: str, tokens_in: int, hit: int, tokens_out: int, ts: float):
+    """一次调用的钱 (元); 订阅 / 未知服务商返回 None"""
+    p = PRICES.get(pid)
+    if not p:
+        return None
+    h, m, o = p['peak' if _peak(ts) else 'idle']
+    return (hit * h + (tokens_in - hit) * m + tokens_out * o) / 1e6
+
+
+def entry_cost(pid: str, e: dict):
+    """一条按天汇总记录的钱: 有 yuan 用 yuan; 旧记录 (09-25 之前没记 yuan) 按高峰价估算; 订阅返回 None"""
+    if pid not in PRICES:
+        return None
+    if 'yuan' in e:
+        return e['yuan']
+    h, m, o = PRICES[pid]['peak']
+    hit = e.get('hit', 0)
+    return (hit * h + (e.get('in', 0) - hit) * m + e.get('out', 0) * o) / 1e6
 
 
 def fmt(n: int) -> str:
@@ -88,4 +123,12 @@ if __name__ == '__main__':
     assert brief(today(data)) == '↑1.9k ↓205'
     assert detail(today(data)) == '上行 1,910（缓存命中 67%） / 下行 205 / 3 次', detail(today(data))   # 1280/1900, minimax 未报不进分母
     assert (fmt(850), fmt(2115), fmt(1_234_567)) == ('850', '2.1k', '1.2M')
+    import calendar
+    peak = calendar.timegm((2026, 9, 25, 2, 0, 0)) ; idle = calendar.timegm((2026, 9, 26, 2, 0, 0))   # 北京 周五 10 点 / 周六 10 点
+    assert _peak(peak) and not _peak(idle)
+    assert abs(call_cost('deepseek', 1476, 1280, 7, peak) - (1280 * 0.04 + 196 * 2 + 7 * 8) / 1e6) < 1e-15
+    assert abs(call_cost('deepseek', 1476, 1280, 7, idle) * 2 - call_cost('deepseek', 1476, 1280, 7, peak)) < 1e-15
+    assert call_cost('mimo', 100, 0, 10, peak) is None and entry_cost('minimax', {'in': 5}) is None
+    assert data[time.strftime('%Y-%m-%d')]['deepseek'].get('yuan', 0) > 0   # add() 已按时段累加金额
+    assert abs(entry_cost('deepseek', {'in': 1000, 'hit': 0, 'out': 100}) - (1000 * 2 + 100 * 8) / 1e6) < 1e-15   # 旧记录按高峰估
     print('polish_usage selftest ok')

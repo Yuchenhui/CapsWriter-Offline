@@ -3,12 +3,14 @@
 import datetime as dt
 
 from core.tools import asr_usage as au
+from core.tools import polish_usage as pu
 
 NAMES = {
     'qwen-audio-3.1-asr-flash-streaming': '千问 qwen-audio-3.1（流式）',
     'qwen3-asr-flash': '千问 qwen3-asr-flash',
     'asr-1.0': 'MiniMax asr-1.0',
 }
+POLISH_NAMES = {'deepseek': 'DeepSeek V4 Flash', 'minimax': 'MiniMax M3', 'mimo': 'MiMo V2.6 Flash'}
 LOCAL_NAMES = {'sensevoice': 'SenseVoice', 'fun_asr_nano': 'Fun-ASR-Nano', 'qwen_asr': 'Qwen3-ASR'}
 
 
@@ -18,10 +20,44 @@ def model_name(model: str) -> str:
     return NAMES.get(model, model)
 
 
-def periods(asr: dict, today: dt.date) -> dict:
-    """{'今日': {...}, '本月': {...}, '累计': {...}}, 每项 calls / sec / yuan"""
-    d = today.isoformat()
-    return {'今日': au.period(asr, d), '本月': au.period(asr, d[:7]), '累计': au.period(asr)}
+def polish_period(polish: dict, prefix: str = '') -> dict:
+    """二次整理: calls / yuan (按量部分) / plan_calls (订阅额度内的次数)"""
+    s = {'calls': 0, 'yuan': 0.0, 'plan_calls': 0}
+    for day, provs in polish.items():
+        if day.startswith(prefix):
+            for pid, e in provs.items():
+                s['calls'] += e.get('calls', 0)
+                y = pu.entry_cost(pid, e)
+                if y is None:
+                    s['plan_calls'] += e.get('calls', 0)
+                else:
+                    s['yuan'] += y
+    return s
+
+
+def periods(asr: dict, today: dt.date, polish: dict = None) -> dict:
+    """{'今日': {...}, '本月': {...}, '累计': {...}}; 每项: 识别 calls / sec / asr_yuan, 整理 polish_calls / polish_yuan, 合计 yuan"""
+    d, out = today.isoformat(), {}
+    for name, pre in (('今日', d), ('本月', d[:7]), ('累计', '')):
+        a, p = au.period(asr, pre), polish_period(polish or {}, pre)
+        out[name] = {'calls': a['calls'], 'sec': a['sec'], 'asr_yuan': a['yuan'], 'polish_calls': p['calls'],
+                     'polish_yuan': p['yuan'], 'yuan': a['yuan'] + p['yuan']}
+    return out
+
+
+def polish_by_provider(polish: dict, prefix: str = '') -> list:
+    """[(显示名, 次数, 上行, 下行, 元 或 None=订阅内)]"""
+    acc = {}
+    for day, provs in polish.items():
+        if day.startswith(prefix):
+            for pid, e in provs.items():
+                a = acc.setdefault(pid, {'calls': 0, 'in': 0, 'out': 0, 'yuan': None})
+                a['calls'] += e.get('calls', 0); a['in'] += e.get('in', 0); a['out'] += e.get('out', 0)
+                y = pu.entry_cost(pid, e)
+                if y is not None:
+                    a['yuan'] = (a['yuan'] or 0.0) + y
+    rows = [(POLISH_NAMES.get(pid, pid), a['calls'], a['in'], a['out'], a['yuan']) for pid, a in acc.items()]
+    return sorted(rows, key=lambda r: (-(r[4] or 0), -r[1]))
 
 
 def by_model(asr: dict, prefix: str = '') -> list:
@@ -37,12 +73,12 @@ def by_model(asr: dict, prefix: str = '') -> list:
     return sorted(rows, key=lambda r: (-r[3], -r[1]))
 
 
-def daily(asr: dict, today: dt.date, days: int = 14) -> list:
-    """最近 days 天 [(月/日, 元)], 旧 -> 新"""
+def daily(asr: dict, today: dt.date, days: int = 14, polish: dict = None) -> list:
+    """最近 days 天 [(月/日, 元)] (识别 + 整理), 旧 -> 新"""
     out = []
     for i in range(days - 1, -1, -1):
         d = today - dt.timedelta(days=i)
-        out.append((f'{d.month}/{d.day}', au.period(asr, d.isoformat())['yuan']))
+        out.append((f'{d.month}/{d.day}', au.period(asr, d.isoformat())['yuan'] + polish_period(polish or {}, d.isoformat())['yuan']))
     return out
 
 
@@ -70,4 +106,11 @@ if __name__ == '__main__':
     dl = daily(asr, today)
     assert len(dl) == 14 and dl[-1][0] == '9/25' and dl[-6][0] == '9/20' and abs(dl[-6][1] - 2.5) < 1e-9
     assert polish_tokens({'2026-09-25': {'deepseek': {'in': 10, 'out': 2, 'calls': 1}}})['in'] == 10
+    pol = {'2026-09-25': {'deepseek': {'calls': 2, 'in': 3000, 'out': 50, 'hit': 2500, 'yuan': 0.002},
+                          'mimo': {'calls': 4, 'in': 6000, 'out': 90}}}
+    pp = periods(asr, today, pol)['今日']
+    assert pp['polish_calls'] == 6 and abs(pp['polish_yuan'] - 0.002) < 1e-12 and abs(pp['yuan'] - (60 * 0.00022 + 0.002)) < 1e-12
+    rows = polish_by_provider(pol)
+    assert rows[0][0] == 'DeepSeek V4 Flash' and rows[1][0] == 'MiMo V2.6 Flash' and rows[1][4] is None   # 订阅内
+    assert abs(daily(asr, today, polish=pol)[-1][1] - pp['yuan']) < 1e-12
     print('stats selftest ok')
