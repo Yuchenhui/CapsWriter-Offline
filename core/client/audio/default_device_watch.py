@@ -66,15 +66,52 @@ def default_capture_id() -> str:
                 _vcall(o, 2, wintypes.ULONG)(o)  # IUnknown::Release
 
 
+def _alive(name_part: str):
+    """录 0.5 秒看有没有信号; 找不到设备 / 打不开返回 None.
+    无线麦发射器关着时接收器仍在线, 只是送全零 (2026-09-26 实测峰值 1e-9); 开着时底噪约 -43 dBFS."""
+    import numpy as np
+    import sounddevice as sd
+    try:
+        # ponytail: PortAudio 设备表是启动时的快照, 之后才插上的接收器这里找不到, 等下次重开音频流才认
+        idx = next(i for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0 and name_part in d['name']
+                   and sd.query_hostapis(d['hostapi'])['name'] == 'Windows WASAPI')
+        rate = int(sd.query_devices(idx)['default_samplerate'])
+        with sd.InputStream(device=idx, channels=1, samplerate=rate, dtype='float32') as s:
+            data, _ = s.read(rate // 2)
+        return float(np.abs(data).max()) > 1e-6
+    except Exception as e:
+        logger.debug(f'探测麦克风 {name_part} 失败: {e}')
+        return None
+
+
+def pick_preferred(priority, devs):
+    """按 priority (设备名片段) 顺序, 返回第一个在线、未静音、有信号的端点 ID; 都不行返回 None"""
+    for part in priority:
+        dev = next((d for d in devs if part in d[1] and not d[2]), None)
+        if dev and _alive(part):
+            return dev[0]
+    return None
+
+
 def start(app) -> None:
     def watch():
         ctypes.windll.ole32.CoInitialize(None)
         last = default_capture_id()
         from core.client.audio import mic_select
+        from config_client import ClientConfig as Config
         sig = None
+        want = None   # 优先级选中的设备, 连续两轮一致才切, 防抖
         while not _stop.is_set():
             threading.Event().wait(_INTERVAL)
             cur = default_capture_id()
+            priority = getattr(Config, 'mic_priority', None)
+            if priority and not app.state.recording:
+                target = pick_preferred(priority, mic_select.list_capture())
+                if target and target != cur and target == want and not app.state.recording:
+                    logger.info(f'麦克风优先级: 切到 {target}')
+                    mic_select.set_default(target)
+                    cur = default_capture_id()
+                want = target
             # 本地改: 插拔 / 静音 / 换默认 -> 托盘「🎤 麦克风」子菜单跟着变
             new_sig = (cur, tuple(mic_select.list_capture()))
             if new_sig != sig:
