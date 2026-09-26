@@ -6,6 +6,7 @@ key 只从用户环境变量读 (注册表 HKCU/Environment 优先), 不读任�
 实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 0.7-2.3s; MiMo V2.6 Flash 中位 0.74s 但 3/8 次 >3s (最慢 13s);
 MiniMax M2.7 关不掉思考 3-6s, 不收录. 2026-09-26 评测 (DeepSeek V4 Flash 37/38 中位 0.85s): Kimi K3 36/38 1.55s (K2.8 32/38); GLM-5.3 Flash 35/38 1.25s;
 DeepSeek V4 Pro 36/38 1.6s 且更贵, 不收录.
+LongCat 2.5 Preview (同批 DeepSeek 38/38 0.62s): 普通/结构化均 34/38, 中位 1.4-1.6s, 最慢 4.8-6.2s (超 3s 时限退回原文); 误改 1 例 (报道→抱到).
 """
 import os
 
@@ -40,6 +41,12 @@ PROVIDERS = {
         'url': 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions',
         'model': 'glm-5.3-flash',
         'key_env': 'ZHIPU_API_KEY',
+    },
+    'longcat': {                     # 美团 LongCat 套餐; thinking disabled 生效 (响应无 reasoning_content)
+        'name': 'LongCat 2.5',
+        'url': 'https://api.longcat.chat/openai/v1/chat/completions',
+        'model': 'LongCat-2.5-Preview',
+        'key_env': 'LONGCAT_API_KEY',
     },
 }
 # 2026-09-24 试过 Groq gpt-oss-120b, 不收录: 免费档按每分钟 token 限流, 评测 26 次里 18 次 429; 单次 0.9s (生成 0.05s).

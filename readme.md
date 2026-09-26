@@ -96,6 +96,7 @@ key 只从 **Windows 用户环境变量** 读取，不写进任何文件。设�
 |---|---|---|---|
 | `DASHSCOPE_API_KEY` | 阿里云百炼（千问） | 流式 / 非流式识别 | https://bailian.console.aliyun.com/ → 右上角头像 → API-KEY 管理 |
 | `ZHIPU_API_KEY` | 智谱 GLM Coding Plan | 非流式识别 glm-asr-2512、整理 GLM-5.3 Flash | https://bigmodel.cn/usercenter/proj-mgmt/apikeys |
+| `LONGCAT_API_KEY` | 美团 LongCat 套餐 | 整理 LongCat 2.5 Preview | https://longcat.chat/platform |
 | `MIMO_API_KEY` | 小米 MiMo Token Plan | 非流式识别 mimo-v2.5-asr、整理 MiMo V2.6 Flash | https://platform.xiaomimimo.com |
 | `MINIMAX_API_KEY` | MiniMax Token Plan | 非流式识别 asr-1.0、整理 MiniMax M3 | https://platform.minimaxi.com/user-center/basic-information/interface-key |
 | `KIMI_API_KEY` | Kimi Code 会员 | 整理 Kimi K3（会员地址 `api.kimi.com/coding/v1`，不是开放平台按量计费的 key） | https://www.kimi.com/code |

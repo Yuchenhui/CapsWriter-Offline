@@ -50,7 +50,7 @@ def add(pid: str, usage: dict) -> None:
 # 计费 (2026-09-25 查): DeepSeek 官方价 元/百万 token (缓存命中, 缓存未命中, 输出); 高峰 = 北京时间工作日 9-12, 14-18 点
 # (法定节假日也算空闲, 这里不识别节假日, 节假日按高峰计 -> 宁可高估). MiniMax / MiMo 走订阅额度, 不折算成钱.
 PRICES = {'deepseek': {'peak': (0.04, 2.0, 8.0), 'idle': (0.02, 1.0, 4.0)}}
-PLAN = {'minimax', 'mimo', 'kimi', 'zhipu'}
+PLAN = {'minimax', 'mimo', 'kimi', 'zhipu', 'longcat'}
 
 
 def _peak(ts: float) -> bool:
