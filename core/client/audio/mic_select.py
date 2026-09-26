@@ -129,7 +129,9 @@ def set_gain(dev_id: str, db: float) -> bool:
     """设录音增益 (dB); Windows 按设备保存, 换设备不互相影响"""
     def fn(vol):
         return not _vcall(vol, 6, ctypes.HRESULT, ctypes.c_float, ctypes.c_void_p)(vol, db, None)   # SetMasterVolumeLevel
-    return bool(_with_device_volume(dev_id, fn))
+    ok = bool(_with_device_volume(dev_id, fn))
+    logger.info(f'设麦克风增益 {db:+g} dB: {"成功" if ok else "失败"}')
+    return ok
 
 
 def gain_steps(mn: float, mx: float, inc: float, max_items: int = 11) -> list:
@@ -139,7 +141,8 @@ def gain_steps(mn: float, mx: float, inc: float, max_items: int = 11) -> list:
     if n <= max_items:
         return [round(mx - i * inc, 2) for i in range(n)]
     gap = max(1, -(-int(mx - mn) // (max_items - 1)))   # 整数 dB 等间隔, 向上取整
-    return [float(v) for v in range(int(mx), int(mn) - 1, -gap) if v >= mn]
+    # 顶档夹到 mx: 无线麦上限 -0.06 dB, 不夹会给出 0 dB 这一档, 设进去被驱动拒绝
+    return [min(float(v), mx) for v in range(int(mx), int(mn) - 1, -gap) if v >= mn]
 
 
 def list_capture() -> list:

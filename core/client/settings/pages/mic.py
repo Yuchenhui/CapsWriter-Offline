@@ -28,12 +28,24 @@ def build(parent, pal, ctx):
         db, mn, mx, inc = mic_select.gain_info(cur)
         row = tk.Frame(c.body, bg=pal.surface)
         row.pack(fill='x')
+        btns = {}
+
+        def paint(sel):                       # 点完按设备实际值重画高亮 (之前不重画, 看着像点不动)
+            for v, b in btns.items():
+                on = sel is not None and abs(v - sel) < max(inc / 2, 0.05)
+                b.configure(font=font(10, on), bg=pal.accent if on else pal.hover,
+                            fg=(pal.bg if pal.dark else '#fff') if on else pal.fg)
+
+        def pick(v):
+            ctx.do('set_gain', cur, v)
+            gi = mic_select.gain_info(cur)
+            paint(gi[0] if gi else None)
+
         for v in mic_select.gain_steps(mn, mx, inc):
-            on = abs(v - db) < max(inc / 2, 0.05)
-            b = tk.Label(row, text=f'{v:+.0f}', font=font(10, on), padx=10, pady=4, cursor='hand2',
-                         bg=pal.accent if on else pal.hover, fg=(pal.bg if pal.dark else '#fff') if on else pal.fg)
+            btns[v] = b = tk.Label(row, text=f'{v:+.0f}', padx=10, pady=4, cursor='hand2')
             b.pack(side='left', padx=(0, 6))
-            b.bind('<Button-1>', lambda e, v=v: ctx.do('set_gain', cur, v))
+            b.bind('<Button-1>', lambda e, v=v: pick(v))
+        paint(db)
         tk.Label(c.body, text=f'范围 {mn:+.0f} ~ {mx:+.0f} dB；正常说话峰值不到 0 dBFS 为宜', font=font(9),
                  bg=pal.surface, fg=pal.muted).pack(anchor='w', pady=(8, 0))
     except Exception as e:
