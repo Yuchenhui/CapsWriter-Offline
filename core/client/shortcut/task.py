@@ -18,15 +18,6 @@ from core.tools.window_focus import activate_window_under_cursor
 from core.client.audio import speaker_mute, idle_release
 from config_client import ClientConfig as _Cfg
 import threading as _threading
-import ctypes as _ctypes
-
-
-def _repeat_gap() -> float:
-    """按住键盘键时系统会自动重复按下: 首次延迟 (控制面板 0~3 档 = 250~1000ms) 后约 30 次/秒.
-    超过 首次延迟 + 0.7s 没收到重复 = 键已松开 (本机 1 档 = 1.2s)"""
-    d = _ctypes.c_uint(1)
-    _ctypes.windll.user32.SystemParametersInfoW(0x16, 0, _ctypes.byref(d), 0)   # SPI_GETKEYBOARDDELAY
-    return (d.value + 1) * 0.25 + 0.7
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -60,9 +51,7 @@ class ShortcutTask:
         self.task: Optional[asyncio.Future] = None
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
-        self.last_down: float = 0.0     # 最近一次按下 (含自动重复) 的 monotonic 时刻, 录音守护用
-        self.capped: bool = False       # 到时长上限自动结束后仍按着: 不再开录, 松开才解除
-        self.repeat_gap: float = _repeat_gap()
+        self.capped: bool = False       # 到时长上限自动结束后: 不再开录, 收到松开才解除
         self._end_lock = _threading.Lock()   # 松开 / 守护线程可能同时结束录音, 只结束一次
 
         # hold_mode 状态跟踪
@@ -155,21 +144,17 @@ class ShortcutTask:
         toast_recording.cap_deadline = 0.0
 
     def _guard(self, start: float, cap: float) -> None:
-        """录音守护 (独立线程, 不占键盘钩子): ① 到时长上限自动结束;
-        ② 键盘长按会一直自动重复按下, 重复停了太久 = 松开事件丢了, 也结束
-        (2026-09-26 17:45: 按了约 7 秒, 松开没收到, 一直录到 328 秒, 上传超 10MB 全部在线识别失败)"""
-        watch_repeat = self.shortcut.type == 'keyboard' and self.shortcut.hold_mode
+        """录音守护 (独立线程, 不占键盘钩子): 到时长上限自动结束. 松开事件丢了 (09-26 17:45 录到 328 秒) 也靠它兜底.
+        曾用"自动重复停了 1.2 秒 = 已松开"判断, 但本机键盘按住时重复会中断数秒 (09-26 19:45 按着被误判松开), 已删"""
+        if not cap:
+            return
         while self.is_recording and self.recording_start_time == start:
             time.sleep(0.1)
-            if cap and time.time() - start >= cap:
-                self.capped = True
-                reason = f'到时长上限 {cap:g} 秒, 自动结束 (仍按着不再开录, 松开后才能录下一句)'
-            elif watch_repeat and time.monotonic() - self.last_down > self.repeat_gap:
-                reason = f'{self.repeat_gap:.1f} 秒没收到按键自动重复, 视为已松开 (松开事件丢了)'
-            else:
+            if time.time() - start < cap:
                 continue
             if self.is_recording and self.recording_start_time == start:
-                logger.warning(f'[{self.shortcut.key}] {reason}')
+                self.capped = True
+                logger.warning(f'[{self.shortcut.key}] 到时长上限 {cap:g} 秒, 自动结束 (松开前不再开录)')
                 self.finish()
             return
 

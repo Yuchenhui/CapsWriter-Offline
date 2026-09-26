@@ -34,12 +34,8 @@ class ShortcutEventHandler:
         """处理按键按下事件"""
         # 长按模式
         if task.shortcut.hold_mode:
-            now = time.monotonic()
-            held = now - task.last_down < task.repeat_gap   # 自动重复中 = 一直按着没松
-            task.last_down = now
-            if task.capped and held:   # 到时长上限后仍按着: 不再开录
+            if task.capped:   # 到时长上限后, 松开前的按下 (含自动重复) 都不开录
                 return
-            task.capped = False
             if not task.is_recording:
                 task.launch()
             return
