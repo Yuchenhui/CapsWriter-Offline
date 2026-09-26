@@ -45,15 +45,24 @@ def _max_record_row(parent, pal, ctx, value, rng):
     head = tk.Frame(row, bg=pal.surface)
     head.pack(fill='x')
     tk.Label(head, text='单次录音上限', font=font(11), bg=pal.surface, fg=pal.fg).pack(side='left')
-    val = tk.Label(head, font=font(11, True), bg=pal.surface, fg=pal.accent)
-    val.pack(side='right')
-    var = tk.IntVar(value=min(max(value or hi, lo), hi))
-    show = lambda *_: val.configure(text=f'{var.get()} 秒')
-    s = tk.Scale(row, from_=lo, to=hi, resolution=5, orient='horizontal', variable=var, showvalue=0, command=show,
-                 bg=pal.accent, troughcolor=pal.hover, activebackground=pal.accent,   # bg 即拖动块颜色 highlightthickness=0, bd=0,
-                 sliderrelief='flat', sliderlength=22, width=10, cursor='hand2')
-    s.pack(fill='x', pady=(6, 0))
-    s.bind('<ButtonRelease-1>', lambda e: ctx.do('set_max_record', var.get()))   # 松手才保存, 拖动中不写文件
-    show()
-    tk.Label(row, text=_nb('一句话最长录多久，到点自动结束（仍按着也不再开录，松开后才能录下一句）；最后 10 秒胶囊闪红，越接近越快'),
+    tk.Label(head, text='秒', font=font(11), bg=pal.surface, fg=pal.muted).pack(side='right', padx=(6, 0))
+    var = tk.StringVar(value=str(min(max(value or hi, lo), hi)))
+    e = tk.Entry(head, textvariable=var, width=5, justify='center', font=font(11), bg=pal.surface, fg=pal.fg,
+                 insertbackground=pal.fg, relief='flat', highlightthickness=1, highlightbackground=pal.border,
+                 highlightcolor=pal.accent)
+    e.pack(side='right', ipady=3)
+
+    def commit(_e=None):
+        """回车 / 离开输入框时保存; 非数字恢复原值, 超范围夹到 10~180 并回显"""
+        from config_client import ClientConfig as Config
+        try:
+            sec = min(max(int(var.get().strip()), lo), hi)
+        except ValueError:
+            sec = int(getattr(Config, 'max_record_sec', 30) or hi)
+        var.set(str(sec))
+        ctx.do('set_max_record', sec)
+
+    e.bind('<Return>', commit)
+    e.bind('<FocusOut>', commit)
+    tk.Label(row, text=_nb(f'{lo}~{hi} 秒。一句话最长录多久，到点自动结束（仍按着也不再开录，松开后才能录下一句）；最后 10 秒胶囊闪红，越接近越快'),
              font=font(9), bg=pal.surface, fg=pal.muted, wraplength=520, justify='left').pack(anchor='w', pady=(4, 0))
