@@ -61,6 +61,8 @@ class SettingsWindow:
     def __init__(self, master, ctx):
         self.master, self.ctx, self.current = master, ctx, None
         ctx.on_theme_changed = self.rebuild
+        ctx.on_saved = self.notify
+        self._toast, self._toast_after = None, None
         self.pal = pal = palette.for_theme(ctx.state().get('capsule_theme', 'auto'))
         self.win = win = tk.Toplevel(master) if master is not None else tk.Tk()
         win.title('CapsWriter 设置')
@@ -110,6 +112,19 @@ class SettingsWindow:
         self.page.pack(fill='both', expand=True, padx=32, pady=28)
         self.area.top()
 
+    def notify(self, ok: bool, text: str) -> None:
+        """右下角提示 1.6 秒: 成功主题色, 失败红色. 连续改动 (边输边存) 只刷新文字和计时"""
+        p = self.pal
+        if self._toast is None:
+            self._toast = tk.Label(self.win, font=font(10, True), padx=14, pady=6)
+        self._toast.configure(text=('✓ ' if ok else '✕ ') + text, bg=p.accent if ok else p.danger,
+                              fg=p.bg if (ok and p.dark) else '#ffffff')
+        self._toast.place(relx=1.0, rely=1.0, x=-24, y=-20, anchor='se')
+        self._toast.lift()
+        if self._toast_after:
+            self.win.after_cancel(self._toast_after)
+        self._toast_after = self.win.after(1600, self._toast.place_forget)
+
     def rebuild(self):
         """换主题后按新配色重建窗口, 停在原分页 (位置 / 大小保持)"""
         global _instance
@@ -118,6 +133,7 @@ class SettingsWindow:
         _instance = SettingsWindow(self.master, self.ctx)
         _instance.win.geometry(geo)
         _instance.show(cur)
+        _instance.notify(True, '已保存')   # 换主题会重建窗口, 旧窗口上的提示随之消失, 在新窗口补上
 
     def close(self):
         global _instance

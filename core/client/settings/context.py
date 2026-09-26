@@ -16,6 +16,7 @@ class Context:
         self.readonly = readonly
         self.app = app
         self.on_theme_changed = None   # 窗口换主题后重绘 (window.py 设置)
+        self.on_saved = None           # 每次改设置后提示 保存成功 / 失败 (window.py 设置): on_saved(ok, text)
         self._preview = {}             # 预览模式: 只在内存里记下的改动 (让预览也能看到换主题效果, 不写文件)
 
     # ---- 读 ----
@@ -64,6 +65,7 @@ class Context:
             print(f'[预览, 未生效] {what} {args[:1]}')
             if what == 'set_theme':
                 self._preview['capsule_theme'] = args[0]
+            self._saved(True, '预览模式，未保存')
             return True
         from core.client.settings import actions
         fn = getattr(actions, what, None)
@@ -77,7 +79,17 @@ class Context:
         elif what == 'calibrate':
             args = (self.app,)
         try:
-            return bool(fn(*args))
+            ok = bool(fn(*args))
         except Exception as e:
             logger.warning(f'设置操作 {what} 失败: {e}')
-            return False
+            ok = False
+        if what != 'calibrate':            # 校准有自己的弹窗, 不算保存
+            self._saved(ok, '已保存' if ok else '保存失败，详见日志')
+        return ok
+
+    def _saved(self, ok: bool, text: str) -> None:
+        if self.on_saved:
+            try:
+                self.on_saved(ok, text)
+            except Exception as e:           # 提示出错不影响保存本身
+                logger.debug(f'保存提示失败: {e}')
