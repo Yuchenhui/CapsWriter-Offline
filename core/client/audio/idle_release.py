@@ -54,7 +54,7 @@ def schedule(app) -> None:
         global _timer
         with _lock:
             _timer = None
-        if app.state.recording or not app.stream._running:
+        if _seconds() <= 0 or app.state.recording or not app.stream._running:   # 计时期间被设置页关掉了
             return
         logger.info(f'麦克风闲置 {sec:.0f}s, 释放音频流')
         try:

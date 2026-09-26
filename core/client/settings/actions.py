@@ -71,6 +71,54 @@ def set_mic_priority(order: list) -> bool:
     return _set('mic_priority', [str(n) for n in order], '麦克风优先顺序')
 
 
+IDLE_RELEASE_SEC = 60
+
+
+def set_mic_idle(app, on: bool) -> bool:
+    """开: 闲置 60 秒关麦克风, 按右 Alt 时后台重开 (idle_release); 关: 麦克风常开, 已关着就立刻打开"""
+    _set('mic_idle_release_sec', IDLE_RELEASE_SEC if on else 0, '麦克风闲置释放 (秒)')
+    if app is None:
+        return True
+    from core.client.audio import idle_release
+    if on:
+        idle_release.schedule(app)
+    elif not app.stream._running:
+        import threading
+        threading.Thread(target=app.stream.start, daemon=True, name='mic-wake').start()
+    return True
+
+
+STARTUP_LNK = Path(os.environ.get('APPDATA', '')) / 'Microsoft/Windows/Start Menu/Programs/Startup/CapsWriter.lnk'
+
+
+def autostart_on() -> bool:
+    return STARTUP_LNK.exists()
+
+
+def set_autostart(base, on: bool) -> bool:
+    """开机自启 = Startup 里的 CapsWriter.lnk, 同桌面 / 开始菜单快捷方式: wscript start-hidden.vbs"""
+    if not on:
+        STARTUP_LNK.unlink(missing_ok=True)
+        logger.info('设置: 开机自启 -> 关')
+        return True
+    import subprocess
+    base = Path(base).resolve()
+    env = {**os.environ, 'CW_LNK': str(STARTUP_LNK), 'CW_BASE': str(base),   # 路径走环境变量, 命令里不写反斜杠
+           'CW_TARGET': str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'System32' / 'wscript.exe'),
+           'CW_ARGS': f'"{base / "start-hidden.vbs"}"', 'CW_ICON': f'{base / "assets" / "icon.ico"},0'}
+    ps = ('$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CW_LNK); $s.TargetPath = $env:CW_TARGET; '
+          '$s.Arguments = $env:CW_ARGS; $s.WorkingDirectory = $env:CW_BASE; $s.IconLocation = $env:CW_ICON; $s.Save()')
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps], env=env,
+                           capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+    except Exception as e:
+        logger.warning(f'建开机自启快捷方式失败: {e}')
+        return False
+    ok = r.returncode == 0 and STARTUP_LNK.exists()
+    logger.info(f'设置: 开机自启 -> 开 ({"成功" if ok else "失败: " + r.stderr.strip()[:200]})')
+    return ok
+
+
 def set_gain(dev_id: str, db: float) -> bool:
     from core.client.audio import mic_select
     return bool(mic_select.set_gain(dev_id, db))

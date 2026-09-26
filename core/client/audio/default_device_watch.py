@@ -105,7 +105,7 @@ def start(app) -> None:
             threading.Event().wait(_INTERVAL)
             cur = default_capture_id()
             priority = getattr(Config, 'mic_priority', None)
-            if priority and getattr(Config, 'mic_auto', True) and not app.state.recording:
+            if priority and getattr(Config, 'mic_auto', True) and app.stream._running and not app.state.recording:   # 麦克风闲置释放时不探测, 否则每 2 秒又把麦克风打开
                 target = pick_preferred(priority, mic_select.list_capture())
                 if target and target != cur and target == want and not app.state.recording:
                     logger.info(f'麦克风优先级: 切到 {target}')

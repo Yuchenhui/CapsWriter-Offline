@@ -70,8 +70,10 @@ class Context:
         if fn is None:
             logger.warning(f'未知设置操作: {what}')
             return False
-        if what in ('set_local_model', 'save_wordlist'):
+        if what in ('set_local_model', 'save_wordlist', 'set_autostart'):
             args = (self.base,) + args
+        elif what == 'set_mic_idle':
+            args = (self.app,) + args
         elif what == 'calibrate':
             args = (self.app,)
         try:
