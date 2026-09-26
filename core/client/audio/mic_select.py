@@ -171,7 +171,17 @@ def list_capture() -> list:
     finally:
         _release(coll)
         _release(enum)
-    return out
+    from config_client import ClientConfig as Config
+    return sort_devices(out, getattr(Config, 'mic_priority', None) or [])
+
+
+def sort_devices(devs: list, priority: list) -> list:
+    """mic_priority 里的按其顺序排最前, 其余实体设备居中, 虚拟设备 (远程桌面 / 声卡驱动虚拟的) 垫底"""
+    def key(d):
+        name = d[1]
+        rank = next((i for i, p in enumerate(priority) if p in name), None)
+        return (0, rank) if rank is not None else (2 if 'Virtual' in name else 1, 0)
+    return sorted(devs, key=key)   # 稳定排序: 同档内保持 Windows 枚举顺序
 
 
 def set_default(dev_id: str) -> bool:
@@ -206,5 +216,8 @@ if __name__ == '__main__':   # 只读自检: 列设备 + 当前默认, 不改任
             assert 1 < len(steps) <= 11 and steps[0] == gi[2] and steps[-1] >= gi[1], steps
     assert any(i == cur for i, *_ in devs), '默认设备不在列表里'
     assert gain_steps(-15, 5, 2) == [5, 3, 1, -1, -3, -5, -7, -9, -11, -13, -15]
+    names = ['Microphone Array (UUYC Virtual Audio Device)', 'Microphone (Realtek)', 'Microphone (Jabra X)', 'Microphone (Wireless Mic Rx)']
+    got = [d[1] for d in sort_devices([(n, n, False, 0) for n in names], ['Wireless Mic Rx', 'Jabra'])]
+    assert got == [names[3], names[2], names[1], names[0]], got
     assert len(gain_steps(-96, 0, 0.03)) <= 11
     print('mic_select selftest ok')
