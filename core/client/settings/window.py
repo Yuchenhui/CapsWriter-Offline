@@ -16,14 +16,15 @@ _instance = None
 
 
 def _dark_titlebar(win, dark: bool):
-    """Win11 标题栏跟随深浅色. 须在窗口真正建好后设, 设完隐藏再显示一次才会重绘 (否则保持亮色)"""
+    """Win11 标题栏跟随深浅色. 设完发 SWP_FRAMECHANGED 只重绘边框
+    (原来 withdraw + deiconify 整窗隐藏再显示, 打开和换主题都会闪一下)"""
     try:
         win.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(win.winfo_id()) or win.winfo_id()
         v = ctypes.c_int(1 if dark else 0)
         ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v), 4)   # DWMWA_USE_IMMERSIVE_DARK_MODE
-        win.withdraw()
-        win.deiconify()
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0001 | 0x0002 | 0x0004 | 0x0010)
+        # SWP_FRAMECHANGED | NOSIZE | NOMOVE | NOZORDER | NOACTIVATE
     except Exception:
         pass
 
@@ -63,12 +64,19 @@ class SettingsWindow:
         ctx.on_theme_changed = self.rebuild
         ctx.on_saved = self.notify
         self._toast, self._toast_after = None, None
-        self.pal = pal = palette.for_theme(ctx.state().get('capsule_theme', 'auto'))
+        self.pal = palette.for_theme(ctx.state().get('capsule_theme', 'auto'))
         self.win = win = tk.Toplevel(master) if master is not None else tk.Tk()
         win.title('CapsWriter 设置')
-        win.configure(bg=pal.bg)
         win.geometry('900x640')
         win.minsize(760, 520)
+        self._build()
+        self.show(PAGES[0])
+        win.protocol('WM_DELETE_WINDOW', self.close)
+
+    def _build(self):
+        """窗口内全部内容 (侧栏 + 内容区); 换主题时在同一窗口里重建"""
+        pal, win = self.pal, self.win
+        win.configure(bg=pal.bg)
         _dark_titlebar(win, pal.dark)
 
         side = tk.Frame(win, bg=pal.side, width=200)
@@ -91,8 +99,6 @@ class SettingsWindow:
             for w in (item, lab, bar):
                 w.bind('<Button-1>', lambda e, m=mod: self.show(m))
             self.nav[mod] = (item, bar, lab)
-        self.show(PAGES[0])
-        win.protocol('WM_DELETE_WINDOW', self.close)
 
     def show(self, mod):
         self.current = mod
@@ -133,14 +139,18 @@ class SettingsWindow:
         self._toast_after = self.win.after(1600, c.place_forget)
 
     def rebuild(self):
-        """换主题后按新配色重建窗口, 停在原分页 (位置 / 大小保持)"""
-        global _instance
-        geo, cur = self.win.geometry(), self.current
-        self.win.destroy()
-        _instance = SettingsWindow(self.master, self.ctx)
-        _instance.win.geometry(geo)
-        _instance.show(cur)
-        _instance.notify(True, '已保存')   # 换主题会重建窗口, 旧窗口上的提示随之消失, 在新窗口补上
+        """换主题: 同一窗口里按新配色重建内容, 停在原分页. 不销毁窗口 (原来销毁重开, 整窗闪一下)"""
+        cur = self.current
+        self.pal = palette.for_theme(self.ctx.state().get('capsule_theme', 'auto'))
+        self.win.unbind('<MouseWheel>')          # ScrollArea 绑在窗口上, 旧内容的绑定要清掉
+        if self._toast_after:
+            self.win.after_cancel(self._toast_after)
+        self._toast, self._toast_after, self.page = None, None, None
+        for w in self.win.winfo_children():
+            w.destroy()
+        self._build()
+        self.show(cur)
+        self.notify(True, '已保存')
 
     def close(self):
         global _instance
