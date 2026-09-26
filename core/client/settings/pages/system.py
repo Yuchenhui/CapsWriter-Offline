@@ -24,8 +24,9 @@ def build(parent, pal, ctx):
     c.pack(fill='x')
     _row(c.body, pal, '开机自启', '登录 Windows 后在后台启动（启动文件夹里的 CapsWriter 快捷方式）',
          actions.autostart_on(), lambda v: ctx.do('set_autostart', v))
-    _row(c.body, pal, '不用时关闭麦克风',
-         f'闲置 {actions.IDLE_RELEASE_SEC} 秒后关掉麦克风（占用指示灭），按右 Alt 时再打开。'
-         '代价：重新打开约 0.5 秒，胶囊显示暗点「预热」时还收不到声音，看到声波再开口。关 = 麦克风一直开着，按下即录',
+    _row(c.body, pal, '说完就关闭麦克风',
+         '按住右 Alt 才打开麦克风，说完就关（占用指示灭），像微信输入法。'
+         '代价：每句开头要等麦克风打开，刚用过约 0.05 秒，隔久了约 0.5 秒；胶囊显示暗点「预热」时还收不到声音，看到声波再开口。'
+         '关 = 麦克风一直开着，按下即录',
          float(getattr(Config, 'mic_idle_release_sec', 0) or 0) > 0, lambda v: ctx.do('set_mic_idle', v))
     return f

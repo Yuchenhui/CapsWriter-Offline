@@ -71,11 +71,11 @@ def set_mic_priority(order: list) -> bool:
     return _set('mic_priority', [str(n) for n in order], '麦克风优先顺序')
 
 
-IDLE_RELEASE_SEC = 60
+IDLE_RELEASE_SEC = 1   # 说完 1 秒就关 (像微信输入法); 1 秒内接着按不关, 省一次重开
 
 
 def set_mic_idle(app, on: bool) -> bool:
-    """开: 闲置 60 秒关麦克风, 按右 Alt 时后台重开 (idle_release); 关: 麦克风常开, 已关着就立刻打开"""
+    """开: 说完 1 秒关麦克风, 按右 Alt 时后台重开 (idle_release); 关: 麦克风常开, 已关着就立刻打开"""
     _set('mic_idle_release_sec', IDLE_RELEASE_SEC if on else 0, '麦克风闲置释放 (秒)')
     if app is None:
         return True
