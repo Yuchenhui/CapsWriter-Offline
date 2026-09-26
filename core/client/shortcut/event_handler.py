@@ -34,6 +34,7 @@ class ShortcutEventHandler:
         """处理按键按下事件"""
         # 长按模式
         if task.shortcut.hold_mode:
+            task.last_down = time.monotonic()
             if task.capped:   # 到时长上限后, 松开前的按下 (含自动重复) 都不开录
                 return
             if not task.is_recording:
@@ -61,6 +62,7 @@ class ShortcutEventHandler:
 
         # 长按模式
         task.capped = False
+        lost_up, task.lost_up = task.lost_up, False
         if not task.is_recording:
             return
 
@@ -68,18 +70,21 @@ class ShortcutEventHandler:
         logger.debug(f"[{key_name}] 松开，持续时间: {duration:.2f}s")
 
         if duration < task.threshold:
-            self._handle_short_press(key_name, task)
+            self._handle_short_press(key_name, task, emulate=not lost_up)
         else:
             task.finish()
 
-    def _handle_short_press(self, key_name, task) -> None:
-        """处理短按情况"""
+    def _handle_short_press(self, key_name, task, emulate: bool = True) -> None:
+        """处理短按情况. emulate=False: 自动重复中断判为松开后, 重复恢复又随即松开的"短按"
+        (09-26 19:45 实例), 用户并没有按 Alt, 不补发"""
         cancel_start = time.perf_counter()
         task.cancel()
         cancel_time = (time.perf_counter() - cancel_start) * 1000
         logger.debug(f"[{key_name}] task.cancel() 耗时: {cancel_time:.2f}ms")
 
-        if task.shortcut.suppress:
+        if task.shortcut.suppress and not emulate:
+            logger.info(f"[{key_name}] 自动重复中断后的短按, 不补发按键")
+        elif task.shortcut.suppress:
             logger.debug(f"[{key_name}] 安排异步补发按键")
             self.pool.submit(self.emulator.emulate_key, key_name)
 
