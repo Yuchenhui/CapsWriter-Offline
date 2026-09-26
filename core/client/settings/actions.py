@@ -119,6 +119,14 @@ def set_autostart(base, on: bool) -> bool:
     return ok
 
 
+MAX_RECORD_RANGE = (10, 180)
+
+
+def set_max_record(sec) -> bool:
+    lo, hi = MAX_RECORD_RANGE
+    return _set('max_record_sec', int(min(max(int(sec), lo), hi)), '单次录音上限 (秒)')
+
+
 def set_gain(dev_id: str, db: float) -> bool:
     from core.client.audio import mic_select
     return bool(mic_select.set_gain(dev_id, db))
