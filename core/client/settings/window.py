@@ -10,7 +10,7 @@ import tkinter as tk
 
 from core.client.settings import palette
 from core.client.settings.pages import PAGES
-from core.client.settings.widgets import font
+from core.client.settings.widgets import font, toast_image
 
 _instance = None
 
@@ -113,17 +113,24 @@ class SettingsWindow:
         self.area.top()
 
     def notify(self, ok: bool, text: str) -> None:
-        """右下角提示 1.6 秒: 成功主题色, 失败红色. 连续改动 (边输边存) 只刷新文字和计时"""
+        """右下角提示 1.6 秒: 成功主题色, 失败红色. 连续改动 (边输边存) 只重画和重新计时"""
+        import tkinter.font as tkfont
         p = self.pal
+        fill, fg = (p.accent, p.bg if p.dark else '#ffffff') if ok else (p.danger, '#ffffff')
+        h, w = 34, tkfont.Font(font=font(10, True)).measure(text) + 58   # 左 38 放图标, 右 20 留白
         if self._toast is None:
-            self._toast = tk.Label(self.win, font=font(10, True), padx=14, pady=6)
-        self._toast.configure(text=('✓ ' if ok else '✕ ') + text, bg=p.accent if ok else p.danger,
-                              fg=p.bg if (ok and p.dark) else '#ffffff')
-        self._toast.place(relx=1.0, rely=1.0, x=-24, y=-20, anchor='se')
-        self._toast.lift()
+            self._toast = tk.Canvas(self.win, highlightthickness=0, bd=0)
+        c = self._toast
+        c.delete('all')
+        c.configure(width=w, height=h, bg=p.bg)
+        c.img = toast_image(p.bg, fill, fg, ok, w, h)       # 底和图标都是抗锯齿图, 文字交给 Tk (本身有抗锯齿)
+        c.create_image(0, 0, image=c.img, anchor='nw')
+        c.create_text(38, h // 2, text=text, anchor='w', fill=fg, font=font(10, True))
+        c.place(relx=1.0, rely=1.0, x=-24, y=-20, anchor='se')
+        tk.Misc.lift(c)   # Canvas.lift 被重载成画布内图元的 tag_raise, 要窗口层级的 raise
         if self._toast_after:
             self.win.after_cancel(self._toast_after)
-        self._toast_after = self.win.after(1600, self._toast.place_forget)
+        self._toast_after = self.win.after(1600, c.place_forget)
 
     def rebuild(self):
         """换主题后按新配色重建窗口, 停在原分页 (位置 / 大小保持)"""

@@ -170,6 +170,18 @@
    |-- UDP 广播识别结果
 ```
 
+## 界面绘制规则 (UI Drawing) —— 一次画对, 别等用户说"糊 / 丑"
+
+用户多次反馈设置页控件"分辨率低". 查明**不是 DPI** (两块屏都是 2560x1440、缩放 100%), 而是 Tk 原生绘图**没有抗锯齿**:
+
+- **圆角 / 圆形 / 斜线 / 图标**一律用 `core/client/settings/widgets.py` 的 `_aa()` (Pillow 4 倍超采样再缩小) 画成图片,
+  参照 `toggle_image` / `radio_image` / `toast_image`. 胶囊用 `LayeredRenderer` 同理.
+- **禁止**: `tk.Scale` 滑块 (拖动块和轨道都是硬边, 已弃, 改手填输入框); 用 `Label` 纯色块冒充圆角控件;
+  拿 Unicode 字符 (✓ ✕ ● ▶ 等) 当图标 (走回退字体, 又粗又糙); Canvas 原生 `create_oval/arc/polygon` 画可见形状.
+- **可以直接用 Tk**: 文字 (系统 ClearType 本身有抗锯齿); 水平 / 竖直的直线和直角矩形 (没有锯齿问题).
+- **交付前自查**: 截图后用 `Image.NEAREST` 放大 4 倍看边缘, 有一格一格的台阶就是没做抗锯齿.
+- Tk 坑: `Canvas.lift()` 被重载成画布内图元的 `tag_raise`, 提升控件层级要用 `tk.Misc.lift(canvas)`.
+
 ## 用户偏好 (User Preferences)
 - **语言**: 中文 (Chinese)，总结、Plan、WalkThrough、注释都要用中文。
 - **环境**: 运行环境是 `conda activate c`，或用 `D:/anaconda3/envs/c/python.exe` 或 `conda run -n c` 执行。所有的临时 Python 代码要先写到临时脚本文件，再运行，而不要直接用命令行跑代码。临时脚本用完不要删。

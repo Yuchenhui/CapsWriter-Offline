@@ -32,6 +32,21 @@ def _aa(key, w, h, draw):
     return img
 
 
+def toast_image(bg: str, fill: str, fg: str, ok: bool, w: int, h: int):
+    """保存提示底图: 圆角胶囊 + 对勾 / 叉, 都画成抗锯齿图.
+    Tk 的 Label 色块是直角硬边, Unicode 的 ✓ ✕ 会走回退字体, 又粗又糙 (2026-09-26 实测)"""
+    def draw(d, k):
+        d.rectangle((0, 0, w * k, h * k), fill=_rgba(bg))
+        d.rounded_rectangle((0, 0, w * k - 1, h * k - 1), radius=h * k / 2, fill=_rgba(fill))
+        cx, cy, s, lw, col = 22 * k, h * k / 2, 5 * k, round(2.2 * k), _rgba(fg)
+        if ok:
+            d.line([(cx - s, cy), (cx - s * 0.3, cy + s * 0.7), (cx + s, cy - s * 0.8)], fill=col, width=lw, joint='curve')
+        else:
+            for a, b in (((cx - s * .8, cy - s * .8), (cx + s * .8, cy + s * .8)), ((cx - s * .8, cy + s * .8), (cx + s * .8, cy - s * .8))):
+                d.line([a, b], fill=col, width=lw)
+    return _aa(('toast', bg, fill, fg, ok, w, h), w, h, draw)
+
+
 def radio_image(pal, on: bool, bg: str):
     def draw(d, k):
         d.ellipse((2 * k, 2 * k, 16 * k, 16 * k), fill=_rgba(bg), outline=_rgba(pal.accent if on else pal.border), width=2 * k)
