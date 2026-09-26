@@ -62,6 +62,13 @@ def _max_record_row(parent, pal, ctx, value, rng):
         var.set(str(sec))
         ctx.do('set_max_record', sec)
 
+    def live(*_):
+        """边输边存 (范围内才存): 填完直接点导航切页不会触发回车 / 失焦, 09-26 填的 45 因此没存上"""
+        v = var.get().strip()
+        if v.isdigit() and lo <= int(v) <= hi:
+            ctx.do('set_max_record', int(v))
+
+    var.trace_add('write', live)
     e.bind('<Return>', commit)
     e.bind('<FocusOut>', commit)
     tk.Label(row, text=_nb(f'{lo}~{hi} 秒。一句话最长录多久，到点自动结束（仍按着也不再开录，松开后才能录下一句）；最后 10 秒胶囊闪红，越接近越快'),
