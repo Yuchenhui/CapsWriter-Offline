@@ -29,6 +29,31 @@ from typing import Optional, Callable, Union
 from .toast_constants import DEFAULT_FONT_FAMILY
 from .toast_logger import get_toast_logger
 
+cap_deadline = 0.0          # 本句录音到时长上限的时刻 (time.time()); 0 = 不限. 由 ShortcutTask 设置
+_WARN_RED = (255, 59, 48, 255)
+
+
+def _cap_warn(now: float) -> float:
+    """快到时长上限时的闪红强度 0~1: 最后 record_warn_sec 秒内闪, 频率 1 次/秒线性升到 4 次/秒"""
+    if not cap_deadline:
+        return 0.0
+    from config_client import ClientConfig as Config
+    warn = float(getattr(Config, 'record_warn_sec', 10) or 0)
+    left = cap_deadline - now
+    if warn <= 0 or not 0 < left <= warn:
+        return 0.0
+    t = warn - left
+    phase = t + 1.5 * t * t / warn        # 频率 f(t) = 1 + 3t/warn 的积分
+    return 0.5 - 0.5 * math.cos(2 * math.pi * phase)
+
+
+def _tint_red(img, w: float):
+    """胶囊整体往红色混 (透明度不变)"""
+    from PIL import Image
+    out = Image.blend(img, Image.new('RGBA', img.size, _WARN_RED), 0.65 * w)
+    out.putalpha(img.getchannel('A'))
+    return out
+
 logger = get_toast_logger(__name__)
 
 
@@ -441,6 +466,9 @@ class ToastWindowRecording:
         self._themed.set_mode({'listening': 'recording'}.get(self._applied_mode, self._applied_mode), now)
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
+        w = _cap_warn(time.time()) if self._applied_mode == 'listening' else 0.0
+        if w > 0.01:
+            img = _tint_red(img, w)   # ponytail: 只做了主题胶囊, 经典样式 (dark/light/auto) 不闪
         self._ulw.blit(img, a)
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)

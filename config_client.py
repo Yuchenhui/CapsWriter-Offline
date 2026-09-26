@@ -85,6 +85,8 @@ class ClientConfig:
 
     enable_tray = True          # 客户端默认启用托盘图标功能
     mute_speaker_while_recording = True  # 按住录音时音箱静音, 松开恢复原状态 (防止播放声被收进去)
+    max_record_sec = 30         # 一句最长录多久 (秒): 到点自动结束, 仍按着也不再开录, 松开后才能录下一句. 0 = 不限
+    record_warn_sec = 10        # 最后几秒胶囊闪红, 越接近上限闪得越快 (1 -> 4 次/秒)
     mic_idle_release_sec = 0    # ⚠️ 保持 0 (麦克风常开). 2026-09-24 实测: 无线麦闲置后重开要 467ms, 期间键盘钩子被卡 471ms,
                                 # 右 Alt 的按下漏进系统 -> 卡键. (Jabra 重开只要 20ms, 在家没暴露)
     follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
