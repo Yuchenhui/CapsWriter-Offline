@@ -21,6 +21,8 @@ def build(parent, pal, ctx):
     tk.Label(f, text='设备上的物理静音键 Windows 看不到：录音一直没声音时先检查它', font=font(9), bg=pal.bg,
              fg=pal.muted).pack(anchor='w', pady=(6, 0))
 
+    _priority_section(f, pal, ctx, devs)
+
     section(f, pal, '当前设备增益').pack(anchor='w', pady=(22, 8))
     c = Card(f, pal)
     c.pack(fill='x')
@@ -58,3 +60,31 @@ def build(parent, pal, ctx):
              font=font(10), bg=pal.surface, fg=pal.fg, wraplength=560, justify='left').pack(anchor='w')
     Button(c.body, pal, '开始校准', lambda: ctx.do('calibrate'), primary=True).pack(anchor='w', pady=(10, 0))
     return f
+
+
+def merge_order(visible: list, saved: list) -> list:
+    """拖拽后的新顺序 + 当前没插着的设备 (留在它原来的位置, 免得在家排序把公司的无线麦挤到最后)"""
+    out = list(visible)
+    for i, p in enumerate(saved):
+        if not any(p in n for n in visible):
+            out.insert(min(i, len(out)), p)
+    return out
+
+
+def _priority_section(f, pal, ctx, devs):
+    from config_client import ClientConfig as Config
+    from core.client.settings.widgets import SortList, Toggle
+    section(f, pal, '优先顺序').pack(anchor='w', pady=(22, 8))
+    row = tk.Frame(f, bg=pal.bg)
+    row.pack(fill='x', pady=(0, 8))
+    tk.Label(row, text='按顺序自动切换：用第一个有声音的麦克风', font=font(11), bg=pal.bg, fg=pal.fg).pack(side='left')
+    Toggle(row, pal, bool(getattr(Config, 'mic_auto', True)), lambda v: ctx.do('set_mic_auto', v), bg=pal.bg).pack(side='right')
+    names = [name for _, name, _, _ in devs]           # list_capture 已按当前优先顺序排好
+
+    def save(order):
+        saved = list(getattr(Config, 'mic_priority', None) or [])
+        ctx.do('set_mic_priority', merge_order(order, saved))
+
+    SortList(f, pal, [{'key': n, 'title': n} for n in names], save).pack(fill='x')
+    tk.Label(f, text='拖动排序。无线麦发射器关着、耳机按了静音时录到的是全零，会自动跳到下一个；开着自动切换时手动选的设备会被切回',
+             font=font(9), bg=pal.bg, fg=pal.muted, wraplength=560, justify='left').pack(anchor='w', pady=(6, 0))

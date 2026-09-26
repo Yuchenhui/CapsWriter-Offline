@@ -63,6 +63,14 @@ def set_mic(dev_id: str) -> bool:
     return bool(mic_select.set_default(dev_id))
 
 
+def set_mic_auto(on: bool) -> bool:
+    return _set('mic_auto', bool(on), '麦克风自动切换')
+
+
+def set_mic_priority(order: list) -> bool:
+    return _set('mic_priority', [str(n) for n in order], '麦克风优先顺序')
+
+
 def set_gain(dev_id: str, db: float) -> bool:
     from core.client.audio import mic_select
     return bool(mic_select.set_gain(dev_id, db))
