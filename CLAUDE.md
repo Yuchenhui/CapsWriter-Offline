@@ -181,6 +181,8 @@
 - **可以直接用 Tk**: 文字 (系统 ClearType 本身有抗锯齿); 水平 / 竖直的直线和直角矩形 (没有锯齿问题).
 - **交付前自查**: 截图后用 `Image.NEAREST` 放大 4 倍看边缘, 有一格一格的台阶就是没做抗锯齿.
 - Tk 坑: `Canvas.lift()` 被重载成画布内图元的 `tag_raise`, 提升控件层级要用 `tk.Misc.lift(canvas)`.
+- Pillow 坑: 打包的 Pillow 10.4 在小数坐标 + 半径约等于半宽时 `rounded_rectangle` 抛 "x1 must be >= x0". 尺寸会变的形状
+  (胶囊过渡 / 缩放) 一律用 `core/ui/capsule_themes.py` 的 `rrect()`; 2026-09-28 阴影层直调原生函数, 打挂 Toast 线程, 胶囊整段会话不再出现.
 
 ## 用户偏好 (User Preferences)
 - **语言**: 中文 (Chinese)，总结、Plan、WalkThrough、注释都要用中文。

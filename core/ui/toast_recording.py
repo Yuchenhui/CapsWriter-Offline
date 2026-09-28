@@ -440,6 +440,8 @@ class ToastWindowRecording:
             self._tick_frame()
         except tk.TclError:
             return
+        except Exception:   # 一帧画挂只停这个胶囊; 不拦的话异常冒出 mainloop 打挂 Toast 线程, 之后胶囊再也不出 (2026-09-28)
+            logger.exception('录音胶囊绘制出错, 本胶囊停帧')
 
     def _tick_frame(self) -> None:
         self._frame += 1

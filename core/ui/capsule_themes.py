@@ -36,6 +36,17 @@ def px(v: float) -> int:
     return round(v * SCALE)
 
 
+def rrect(draw: ImageDraw.ImageDraw, box, radius: float, **kw) -> None:
+    """rounded_rectangle 的安全版. Pillow 10.4 在小数坐标 + 半径约等于半宽 (胶囊缩成近圆) 时, 内部取整后
+    中间矩形宽度为负, 抛 "x1 must be greater than or equal to x0" (2026-09-28 阴影层因此打挂整个 Toast 线程).
+    报错时把半径压到半宽/半高以内取整重画"""
+    try:
+        draw.rounded_rectangle(box, radius=radius, **kw)
+    except ValueError:
+        rad = math.floor(min(radius, (box[2] - box[0]) / 2, (box[3] - box[1]) / 2))
+        draw.rounded_rectangle(box, radius=max(0, rad), **kw)
+
+
 # ---- 缓动 ----------------------------------------------------------------
 def _clamp(x: float) -> float:
     return 0.0 if x < 0 else 1.0 if x > 1 else x
@@ -90,11 +101,7 @@ class Pen:
     def rrect(self, x0, y0, x1, y1, r, fill=None, outline=None, width=1.0):
         box = (self._x(x0), self._y(y0), self._x(x1), self._y(y1))
         wd = max(1, round(width * self.s * U())) if outline else 0
-        try:
-            self.d.rounded_rectangle(box, radius=r * self.s * U(), fill=fill, outline=outline, width=wd)
-        except ValueError:   # 缩放后坐标是小数, 半径略超一半时 PIL 内部取整报 "x1 must be >= x0": 半径压到一半以内取整重画
-            rad = math.floor(min(r * self.s * U(), (box[2] - box[0]) / 2, (box[3] - box[1]) / 2))
-            self.d.rounded_rectangle(box, radius=max(0, rad), fill=fill, outline=outline, width=wd)
+        rrect(self.d, box, r * self.s * U(), fill=fill, outline=outline, width=wd)
 
     def circle(self, cx, cy, r, fill=None, outline=None, width=1.0):
         self.rrect(cx - r, cy - r, cx + r, cy + r, r, fill=fill, outline=outline, width=width)
@@ -119,8 +126,8 @@ def inset_top(pen: Pen, x0, y0, w, h, alpha):
     """CSS inset 0 1px 0 rgba(255,255,255,alpha): 形状减去下移 1px 的同形状 = 顶部一道随圆角弯曲的细高光"""
     size, r = pen.img.size, h / 2 * U()
     a, b = Image.new('L', size, 0), Image.new('L', size, 0)
-    ImageDraw.Draw(a).rounded_rectangle((pen._x(x0), pen._y(y0), pen._x(x0 + w), pen._y(y0 + h)), radius=r, fill=255)
-    ImageDraw.Draw(b).rounded_rectangle((pen._x(x0), pen._y(y0 + 1), pen._x(x0 + w), pen._y(y0 + h + 1)), radius=r, fill=255)
+    rrect(ImageDraw.Draw(a), (pen._x(x0), pen._y(y0), pen._x(x0 + w), pen._y(y0 + h)), r, fill=255)
+    rrect(ImageDraw.Draw(b), (pen._x(x0), pen._y(y0 + 1), pen._x(x0 + w), pen._y(y0 + h + 1)), r, fill=255)
     layer = Image.new('RGBA', size, (255, 255, 255, 0))
     layer.putalpha(ImageChops.subtract(a, b).point(lambda v: round(v * alpha)))
     pen.img.alpha_composite(layer)
@@ -298,7 +305,7 @@ class Aurora:
             violet = Image.new('RGBA', pen.img.size, rgba(self.VIOLET))
             track = Image.new('L', pen.img.size, 0)
             cy = pen._y(1 + self.H / 2)
-            ImageDraw.Draw(track).rounded_rectangle((x0, cy - U(), x1, cy + U()), radius=U(), fill=255)
+            rrect(ImageDraw.Draw(track), (x0, cy - U(), x1, cy + U()), U(), fill=255)
             band = _hgrad((round(60 * U()), 1), 0, round(60 * U()),
                           ((0, rgba(self.CYAN, 0)), (0.35, rgba(self.CYAN)), (0.7, rgba(self.VIOLET)), (1, rgba(self.VIOLET, 0))))
             hit = self._cache[key] = (fade.getchannel('A'), grad, violet, ImageChops.multiply(track, fade.getchannel('A')), band)
@@ -581,8 +588,8 @@ class Capsule:
             x0 = (self.win_w - w * k) / 2
             for dx, dy, blur, color in self.th.shadows(mode):
                 layer = Image.new('RGBA', (self.win_w, self.win_h), color[:3] + (0,))
-                ImageDraw.Draw(layer).rounded_rectangle((x0 + dx * k, (MARGIN + dy) * k, x0 + (dx + w) * k, (MARGIN + dy + self.th.H) * k),
-                                                        radius=self.th.H / 2 * k, fill=color)
+                rrect(ImageDraw.Draw(layer), (x0 + dx * k, (MARGIN + dy) * k, x0 + (dx + w) * k, (MARGIN + dy + self.th.H) * k),
+                      self.th.H / 2 * k, fill=color)
                 img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur * k)))
             self._shadow[(w, mode)] = img
         return img
