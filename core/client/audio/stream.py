@@ -185,10 +185,22 @@ class AudioStreamManager:
             logger.error(f"创建音频流失败: {e}", exc_info=True)
             return None
 
-    def stop(self) -> None:
-        """停止音频流"""
+    def stop(self, refresh: bool = False) -> None:
+        """停止音频流. refresh=True 时顺带刷新 PortAudio 设备表 (闲置释放用: 趁没人按键时做,
+        下次开流 / 日志设备名 / 麦克风优先级探测看到的才是当前设备, 而不是启动那一刻的快照)"""
         with self._lock:
             self._stop_locked()
+            if refresh:
+                self._reload_portaudio()
+
+    @staticmethod
+    def _reload_portaudio() -> None:
+        # 本地改 F5 (参考上游 PR #460): 不再 dlclose/dlopen 卸载共享库 —— 旧流的 CFFI 回调可能仍引用它
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as e:
+            logger.warning(f"重载 PortAudio 时发生警告: {e}")
 
     def _stop_locked(self) -> None:
         if not self._running:
@@ -217,13 +229,8 @@ class AudioStreamManager:
             # 停止旧流
             self._stop_locked()
 
-            # 重新初始化 PortAudio，更新设备列表.
-            # 本地改 F5 (参考上游 PR #460): 不再 dlclose/dlopen 卸载共享库 —— 旧流的 CFFI 回调可能仍引用它
-            try:
-                sd._terminate()
-                sd._initialize()
-            except Exception as e:
-                logger.warning(f"重载 PortAudio 时发生警告: {e}")
+            # 重新初始化 PortAudio，更新设备列表
+            self._reload_portaudio()
 
             # 等待设备稳定
             time.sleep(0.1)

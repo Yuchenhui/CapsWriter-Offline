@@ -72,7 +72,7 @@ def _alive(name_part: str):
     import numpy as np
     import sounddevice as sd
     try:
-        # ponytail: PortAudio 设备表是启动时的快照, 之后才插上的接收器这里找不到, 等下次重开音频流才认
+        # PortAudio 设备表是快照, 只在重开流 / 闲置释放时刷新; 之后才插上的接收器要等到那时才认
         idx = next(i for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0 and name_part in d['name']
                    and sd.query_hostapis(d['hostapi'])['name'] == 'Windows WASAPI')
         rate = int(sd.query_devices(idx)['default_samplerate'])
@@ -106,7 +106,8 @@ def start(app) -> None:
             cur = default_capture_id()
             priority = getattr(Config, 'mic_priority', None)
             if priority and getattr(Config, 'mic_auto', True) and app.stream._running and not app.state.recording:   # 麦克风闲置释放时不探测, 否则每 2 秒又把麦克风打开
-                target = pick_preferred(priority, mic_select.list_capture())
+                with app.stream._lock:   # 闲置释放会重载 PortAudio, 探测开着流时不能被它拆掉
+                    target = pick_preferred(priority, mic_select.list_capture()) if app.stream._running else None
                 if target and target != cur and target == want and not app.state.recording:
                     logger.info(f'麦克风优先级: 切到 {target}')
                     mic_select.set_default(target)

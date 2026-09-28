@@ -82,4 +82,12 @@ ts = [threading.Thread(target=m.reopen) for _ in range(4)]
 [t.join() for t in ts]
 assert calls['max_active'] == 1, calls
 assert m._running
+
+# 5. 闲置释放 stop(refresh=True): 关流并刷新设备表 (不再停留在启动时的快照); 普通 stop 不刷新
+before = calls['terminate']
+m.stop(refresh=True)
+assert not m._running and calls['terminate'] == before + 1 and calls['initialize'] == calls['terminate'], calls
+m.start()
+m.stop()
+assert calls['terminate'] == before + 1, calls
 print('f5 selftest ok')

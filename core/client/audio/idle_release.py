@@ -58,7 +58,7 @@ def schedule(app) -> None:
             return
         logger.info(f'麦克风闲置 {sec:.0f}s, 释放音频流')
         try:
-            app.stream.stop()
+            app.stream.stop(refresh=True)
         except Exception as e:
             logger.warning(f'释放音频流失败: {e}')
 
