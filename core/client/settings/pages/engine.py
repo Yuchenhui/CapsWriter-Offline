@@ -6,7 +6,7 @@ from core.client.settings.widgets import ChoiceGroup, Toggle, heading, section, 
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
 # 只写价格 + 评分. 识别: pc-tweaks windows/capswriter/asr-benchmark.md (12 个关键词, 低/中/高三档平均);
-# 整理: tests/polish_eval.py 38 题. 均为 2026-09-26 实测
+# 整理: tests/polish_eval.py 38 题; 除 Step 5 (2026-09-29) 外均为 2026-09-26 实测
 CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 10.3/12',
                 'doubao-stream': '¥1/小时 · 7.7/12',
                 'doubao-batch': '¥1/小时 · 9.0/12',
@@ -14,14 +14,14 @@ CLOUD_DETAIL = {'qwen-stream': '约 ¥0.4/小时 · 10.3/12',
                 'zhipu-batch': '¥3.6/小时 · 10.0/12',
                 'mimo-batch': '套餐内 · 10.0/12',
                 'step-batch': '按量 ¥0.15/小时 · 10.5/12',
-                'step-plan-batch': 'Step Plan 月池 · 10.5/12',
+                'step-plan-batch': '套餐内 · 10.5/12',
                 'minimax-batch': '套餐内 · 10.0/12'}
 LOCAL_SCORE = {'qwen_asr': '免费 · 9.0/12', 'fun_asr_nano': '免费 · 5.7/12', 'sensevoice': '免费 · 5.0/12'}
 POLISH = (('', '关', ''), ('deepseek', 'DeepSeek V4 Flash', '按量 · 37/38'),
           ('minimax', 'MiniMax M3', '套餐内 · 35/38'), ('mimo', 'MiMo V2.6 Flash', '套餐内 · 33/38'),
           ('kimi', 'Kimi K3', '套餐内 · 36/38'), ('zhipu', 'GLM-5.3 Flash', '套餐内 · 35/38'),
           ('longcat', 'LongCat 2.5', '套餐内 · 34/38'),
-          ('step', 'Step 5 Preview', 'Step Plan 月池 · 低推理，最长 15 秒'))
+          ('step', 'Step 5 Preview', '套餐内 · 34/38 · 中位 4.9 秒'))
 
 
 def _all(ctx):
