@@ -243,7 +243,7 @@ def _call_api(text: str, pid: str, window: str = '', structure: bool = False) ->
     req = urllib.request.Request(prov['url'], json.dumps(body).encode('utf-8'),
                                  {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                                   'User-Agent': 'CapsWriter-Offline'})   # Groq (Cloudflare) 拦 Python-urllib 默认 UA: 403 error 1010
-    with _OPENER.open(req, timeout=Config.polish_timeout) as r:
+    with _OPENER.open(req, timeout=prov.get('timeout', Config.polish_timeout)) as r:
         data = json.load(r)
     try:
         polish_usage.add(pid, data.get('usage'))   # 记 token 用量, 托盘显示; 记失败不影响整理
@@ -285,7 +285,8 @@ def polish_ex(text: str, choice=True, window: str = '', structure: bool = False)
         return text, False
     t0 = time.time()
     # 结构化输出更长, 放宽总时限
-    limit = max(Config.polish_timeout, getattr(Config, 'polish_structure_timeout', 8.0)) if structure else Config.polish_timeout
+    limit = max(Config.polish_timeout, getattr(Config, 'polish_structure_timeout', 8.0) if structure else 0,
+                polish_providers.PROVIDERS[pid].get('timeout', 0))
     try:
         # 硬上限: urlopen 的 timeout 是每次 socket 操作各自 3s, 连接+读可能叠加超过; 这里按总时长截断
         out = _POOL.submit(_call_api, text, pid, window, structure).result(timeout=limit)

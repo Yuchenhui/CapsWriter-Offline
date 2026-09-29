@@ -1,7 +1,7 @@
 """
 二次整理可选的在线 LLM 服务商 (客户端托盘菜单 + 服务端调用共用这一份).
 
-加服务商: 在 PROVIDERS 里加一项. 要求 OpenAI 兼容的 /chat/completions 接口, 且能关掉"思考" (否则一句要等好几秒).
+加服务商: 在 PROVIDERS 里加一项. 要求 OpenAI 兼容的 /chat/completions 接口, 并配置合适的推理强度与超时 (否则一句要等好几秒).
 key 只从用户环境变量读 (注册表 HKCU/Environment 优先), 不读任何配置文件.
 实测延迟 (2026-09-23, 关思考): DeepSeek V4 Flash 0.4-1.2s; MiniMax M3 0.7-2.3s; MiMo V2.6 Flash 中位 0.74s 但 3/8 次 >3s (最慢 13s);
 MiniMax M2.7 关不掉思考 3-6s, 不收录. 2026-09-26 评测 (DeepSeek V4 Flash 37/38 中位 0.85s): Kimi K3 36/38 1.55s (K2.8 32/38); GLM-5.3 Flash 35/38 1.25s;
@@ -41,6 +41,14 @@ PROVIDERS = {
         'url': 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions',
         'model': 'glm-5.3-flash',
         'key_env': 'ZHIPU_API_KEY',
+    },
+    'step': {                        # Step Plan 订阅通道; 低推理适合短句校对
+        'name': 'Step 5 Preview',
+        'url': 'https://api.stepfun.com/step_plan/v1/chat/completions',
+        'model': 'step-5-preview',
+        'key_env': 'STEP_API_KEY',
+        'timeout': 15.0,  # Step 5 即使用 low 仍可能慢于普通整理的 3 秒上限
+        'body': {'thinking': None, 'reasoning_effort': 'low', 'max_tokens': 1024},
     },
     'longcat': {                     # 美团 LongCat 套餐; thinking disabled 生效 (响应无 reasoning_content)
         'name': 'LongCat 2.5',
