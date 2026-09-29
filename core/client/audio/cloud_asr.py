@@ -41,7 +41,8 @@ ENGINES = {
     'qwen-batch': ('千问 qwen3-asr-flash', 'batch', 'qwen3-asr-flash', 'DASHSCOPE_API_KEY'),
     'zhipu-batch': ('智谱 glm-asr-2512', 'batch', 'glm-asr-2512', 'ZHIPU_API_KEY'),
     'mimo-batch': ('小米 mimo-v2.5-asr', 'batch', 'mimo-v2.5-asr', 'MIMO_API_KEY'),
-    'step-batch': ('阶跃 stepaudio-2.5-asr', 'batch', 'stepaudio-2.5-asr', 'STEP_API_KEY'),
+    'step-batch': ('阶跃 stepaudio-2.5-asr（余额）', 'batch', 'stepaudio-2.5-asr', 'STEP_API_KEY'),
+    'step-plan-batch': ('阶跃 stepaudio-2.5-asr（订阅）', 'batch', 'stepaudio-2.5-asr', 'STEP_API_KEY'),
     'minimax-batch': ('MiniMax asr-1.0', 'batch', 'asr-1.0', 'MINIMAX_API_KEY'),
     'local': ('本地（托盘「模型」里选）', 'local', '', ''),
 }
@@ -169,7 +170,7 @@ def _make(key: str, on_partial):
     _, kind, model, _ = ENGINES[key]
     if model.startswith('doubao'):
         return VolcStream(on_partial, model)
-    return BatchASR(model) if kind == 'batch' else CloudStream(on_partial, model)
+    return BatchASR(model, step_plan=(key == 'step-plan-batch')) if kind == 'batch' else CloudStream(on_partial, model)
 
 
 def create(on_partial: Callable[[str], None]):
@@ -541,7 +542,7 @@ class Chain:
 
         def start_next():
             k = queue.pop(0)
-            b = BatchASR(ENGINES[k][2], preconnect=False)
+            b = BatchASR(ENGINES[k][2], preconnect=False, step_plan=(k == 'step-plan-batch'))
             b.feed(pcm)
             self._live.append(b)
             pending[asyncio.ensure_future(b.finish(batch_timeout))] = k
@@ -587,8 +588,10 @@ class Chain:
 class BatchASR:
     """非流式: 录音时只攒 16 kHz 样点, 松开后编成 wav 整段上传. 同步 HTTP 放线程里跑, 不堵事件循环"""
 
-    def __init__(self, model: str, preconnect: bool = True):
+    def __init__(self, model: str, preconnect: bool = True, step_plan: bool = False):
         self._model, self._chunks, self._done = model, [], False
+        self._step_plan = step_plan
+        self._usage_model = 'stepaudio-2.5-asr-plan' if step_plan else model
         import urllib.request
         host = _HOSTS.get(model) if preconnect else None     # 候补不预连接: 全局只留一条, 新建会关掉主力正在用的
         self._pre = Preconn(host) if host and not urllib.request.getproxies().get('https') else None
@@ -621,7 +624,7 @@ class BatchASR:
             self.cancel()                     # 用完即关 (超时时后台线程还在读, 关掉连接让它立刻结束)
         try:
             from core.tools import asr_usage
-            asr_usage.add(self._model, {'seconds': billed}, len(pcm) / 16000)
+            asr_usage.add(self._usage_model, {'seconds': billed}, len(pcm) / 16000)
         except Exception as e:
             logger.debug(f'记录在线识别用量失败: {e}')
         if not re.sub(r'[\W_]+', '', text):      # 空或只有标点 / 符号 = 没识别到
@@ -709,14 +712,15 @@ class BatchASR:
             r = json.load(self._open(req))
             text = re.sub(r'\s*#+\s*$', '', r.get('text') or '')     # 几乎没声音时会吐出 "#" (2026-09-26 实测)
             return text, (len(wav) - 44) / 32000
-        if self._model.startswith('stepaudio'):  # 阶跃 StepFun: HTTP + SSE, 整段上传, 按量地址 (没订 Step Plan); 术语表作热词
+        if self._model.startswith('stepaudio'):  # 阶跃 StepFun: HTTP + SSE, 整段上传, 余额/Step Plan 双通道; 术语表作热词
             from core.tools.polish_providers import env_key
             from core.tools.terms import load_terms
             words = [w.strip() for w in load_terms().split(',') if w.strip()]
             body = {'audio': {'data': base64.b64encode(wav).decode(), 'input': {
                 'transcription': {'model': self._model, 'language': 'zh', 'enable_itn': True, **({'hotwords': words} if words else {})},
                 'format': {'type': 'wav'}}}}
-            req = urllib.request.Request('https://api.stepfun.com/v1/audio/asr/sse', json.dumps(body).encode(), {
+            url = 'https://api.stepfun.com/step_plan/v1/audio/asr/sse' if self._step_plan else 'https://api.stepfun.com/v1/audio/asr/sse'
+            req = urllib.request.Request(url, json.dumps(body).encode(), {
                 'Authorization': 'Bearer ' + env_key('STEP_API_KEY'), 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
             text = ''
             with self._open(req) as r:
