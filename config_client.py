@@ -38,8 +38,7 @@ class ClientConfig:
     silence_gate_hold = 10      # 门限开启时, 前 N 秒音频留在客户端等松开再判断 (更长的录音照常边录边发, 不做门限)
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
-    restore_clip = False        # 模拟粘贴后是否恢复剪贴板. 本地改 (2026-09-23): 关 —— 识别结果一直留在剪贴板 (并进 Win+V 历史),
-                                # 光标不在输入框导致没粘上时换个地方 Ctrl+V 即可, 不丢字
+    restore_clip = True         # 语音粘贴后恢复原剪贴板；图片/文件/富文本不临时覆盖，改用模拟打字
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴
 
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
@@ -165,4 +164,3 @@ r"""
   {'key': 'f12', 'type': 'keyboard', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
   {'key': 'x2', 'type': 'mouse', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
 """
-

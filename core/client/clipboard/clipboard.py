@@ -12,6 +12,7 @@ import asyncio
 import platform
 import time
 from contextlib import contextmanager
+import keyboard as _keyboard
 import pyclip
 from pynput import keyboard
 from . import logger
@@ -109,7 +110,42 @@ async def paste_text(text: str, restore_clipboard: bool = True):
         text: 要粘贴的文本
         restore_clipboard: 粘贴后是否恢复原剪贴板内容
     """
-    # 保存剪切板
+    if platform.system() == 'Windows':
+        original = plain_text_snapshot() if restore_clipboard else None
+        if restore_clipboard and (original is None or clipboard_seq() != original[2]):
+            # 图片、文件、富文本等不能按纯文本还原；直接打字，不碰原剪贴板。
+            _keyboard.write(text)
+            logger.debug('原剪贴板不是纯文本，改用模拟打字')
+            return
+        try:
+            seq = set_clipboard_text(text, exclude_history=restore_clipboard)
+        except Exception as e:
+            logger.warning(f'直写剪贴板失败: {e}')
+            if restore_clipboard:
+                _keyboard.write(text)
+                return
+            pyclip.copy(text)
+            seq = clipboard_seq()
+        try:
+            controller = keyboard.Controller()
+            with controller.pressed(keyboard.Key.ctrl):
+                controller.tap('v')
+            logger.debug('已发送粘贴命令 (Ctrl+V)')
+        finally:
+            if restore_clipboard:
+                await asyncio.sleep(0.3)
+                if clipboard_seq() == seq:
+                    try:
+                        restore_plain_text(original)
+                    except Exception as e:
+                        logger.warning(f'恢复原剪贴板失败: {e}')
+                        if not original[0]:
+                            pyclip.copy(original[1])
+                else:
+                    logger.debug('剪贴板期间被别的程序改过，不恢复')
+        return
+
+    # 其他系统保留原有实现
     original = ''
     if restore_clipboard:
         try:
@@ -146,6 +182,8 @@ import ctypes as _ct
 from ctypes import wintypes as _wt
 _u32 = _ct.WinDLL('user32'); _k32 = _ct.WinDLL('kernel32')
 _u32.GetClipboardSequenceNumber.restype = _wt.DWORD
+_u32.EnumClipboardFormats.argtypes = [_wt.UINT]
+_u32.EnumClipboardFormats.restype = _wt.UINT
 _k32.GlobalAlloc.restype = _ct.c_void_p
 _k32.GlobalLock.restype = _ct.c_void_p
 _k32.GlobalLock.argtypes = [_ct.c_void_p]
@@ -161,6 +199,55 @@ GMEM_MOVEABLE = 0x0002
 def clipboard_seq() -> int:
     """剪贴板序号: 别的程序一写就变, 用来判断恢复前剪贴板有没有被人动过"""
     return _u32.GetClipboardSequenceNumber()
+
+
+def plain_text_snapshot() -> tuple[bool, str, int] | None:
+    """仅保存可无损还原的纯文本；返回 (原本为空, 文字, 序号)。"""
+    before = clipboard_seq()
+    for _ in range(10):
+        if _u32.OpenClipboard(None):
+            break
+        time.sleep(0.02)
+    else:
+        return None
+    try:
+        formats = []
+        fmt = 0
+        while fmt := _u32.EnumClipboardFormats(fmt):
+            formats.append(fmt)
+    finally:
+        _u32.CloseClipboard()
+    if not formats:
+        return (True, '', before) if clipboard_seq() == before else None
+    allowed = {1, 7, 13, 16}  # CF_TEXT / CF_OEMTEXT / CF_UNICODETEXT / CF_LOCALE
+    allowed.update(_u32.RegisterClipboardFormatW(name) for name in (
+        'ExcludeClipboardContentFromMonitorProcessing', 'CanIncludeInClipboardHistory',
+        'CanUploadToCloudClipboard'))
+    if 13 not in formats or any(fmt not in allowed for fmt in formats):
+        return None
+    try:
+        content = pyclip.paste().decode('utf-8')
+    except Exception:
+        return None
+    return (False, content, before) if clipboard_seq() == before else None
+
+
+def restore_plain_text(snapshot: tuple[bool, str, int]) -> None:
+    """恢复纯文本或空剪贴板，不把识别文字加入 Win+V 历史。"""
+    was_empty, content, _ = snapshot
+    if was_empty:
+        for _ in range(10):
+            if _u32.OpenClipboard(None):
+                break
+            time.sleep(0.02)
+        else:
+            raise OSError('OpenClipboard 失败，无法恢复空剪贴板')
+        try:
+            _u32.EmptyClipboard()
+        finally:
+            _u32.CloseClipboard()
+    else:
+        set_clipboard_text(content)
 
 
 def _put(fmt: int, data: bytes) -> None:
