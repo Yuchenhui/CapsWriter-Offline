@@ -21,7 +21,7 @@ POLISH = (('', '关', ''), ('deepseek', 'DeepSeek V4 Flash', '按量 · 37/38'),
           ('minimax', 'MiniMax M3', '套餐内 · 35/38'), ('mimo', 'MiMo V2.6 Flash', '套餐内 · 33/38'),
           ('kimi', 'Kimi K3', '套餐内 · 36/38'), ('zhipu', 'GLM-5.3 Flash', '套餐内 · 35/38'),
           ('longcat', 'LongCat 2.5', '套餐内 · 34/38'),
-          ('step', 'Step 5 Preview', '套餐内 · 34/38 · 中位 4.9 秒'))
+          ('step', 'Step 5 Preview', '套餐内 · 34/38'))
 
 
 def _all(ctx):
