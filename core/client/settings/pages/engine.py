@@ -95,7 +95,7 @@ def build(parent, pal, ctx):
     render_list()
 
     section(f, pal, '识别后整理').pack(anchor='w', pady=(26, 8))
-    items = [{'key': k, 'title': t, 'detail': d} for k, t, d in POLISH]
+    polish_items = [{'key': k, 'title': t, 'detail': d} for k, t, d in POLISH]
     row = tk.Frame(f, bg=pal.bg)
     label = tk.Label(row, text='结构化整理：说多件事时编号、分行', font=font(11), bg=pal.bg)
     label.pack(side='left')
@@ -109,7 +109,7 @@ def build(parent, pal, ctx):
     def pick_polish(k):
         ctx.do('set_polish', k)
         gray(k)
-    ChoiceGroup(f, pal, items, st.get('polish', ''), pick_polish).pack(fill='x')
+    ChoiceGroup(f, pal, polish_items, st.get('polish', ''), pick_polish).pack(fill='x')
     row.pack(fill='x', pady=(12, 0))
     gray(st.get('polish', ''))
     return f
