@@ -545,12 +545,13 @@ class Chain:
             b = BatchASR(ENGINES[k][2], preconnect=False, step_plan=(k == 'step-plan-batch'))
             b.feed(pcm)
             self._live.append(b)
-            pending[asyncio.ensure_future(b.finish(batch_timeout))] = k
+            pending[asyncio.ensure_future(b.finish(batch_timeout))] = (k, b)
 
         _chain_running = True
+        net_fail = 0                     # 累计 timeout/net 类失败; ≥2 判网络层问题, 不再试后续候补
         try:
             if self._primary is not None:
-                pending[asyncio.ensure_future(self._primary.finish(timeout))] = self._key
+                pending[asyncio.ensure_future(self._primary.finish(timeout))] = (self._key, self._primary)
             else:
                 start_next()
             while pending:
@@ -560,8 +561,10 @@ class Chain:
                 done, _ = await asyncio.wait(list(pending), timeout=min(hedge, left) if queue else left,
                                              return_when=asyncio.FIRST_COMPLETED)
                 for d in done:
-                    k = pending.pop(d)
+                    k, b = pending.pop(d)
                     text = None if d.cancelled() or d.exception() is not None else d.result()
+                    if b is not None and getattr(b, '_last_kind', None) in ('timeout', 'net'):
+                        net_fail += 1
                     if not text and k == self._key:
                         primary_failed = True     # 主力报错时它自己已提示过原因, 候补接上后不再提示
                     if text:
@@ -574,6 +577,9 @@ class Chain:
                                 except Exception:
                                     pass
                         return text
+                if net_fail >= 2:           # 同窗口多家都 timeout/net → 网络层问题, 不再试后续候补
+                    logger.warning(f'{self._key} 主力 + 候补同窗口内 {net_fail} 次网络类失败, 跳过后续候补走本地识别')
+                    break
                 if queue:                     # 超过 hedge 秒没人出结果, 或有人失败了: 再拉一个候补
                     start_next()
             logger.warning(f'主力 {self._key} 与候补 {self._fallbacks} 都没出结果, 用本地识别')
@@ -592,6 +598,7 @@ class BatchASR:
         self._model, self._chunks, self._done = model, [], False
         self._step_plan = step_plan
         self._usage_model = 'stepaudio-2.5-asr-plan' if step_plan else model
+        self._last_kind = None     # Chain 用: 区分 timeout/net vs balance/auth, 同窗口多家都 timeout = 网络层问题
         import urllib.request
         host = _HOSTS.get(model) if preconnect else None     # 候补不预连接: 全局只留一条, 新建会关掉主力正在用的
         self._pre = Preconn(host) if host and not urllib.request.getproxies().get('https') else None
@@ -617,6 +624,7 @@ class BatchASR:
             text, billed = await asyncio.wait_for(asyncio.to_thread(rec, pcm), timeout)
         except Exception as e:
             kind, detail = classify_exc(e)
+            self._last_kind = kind
             logger.warning(f'在线识别 {self._model} 失败, {"换候补" if _chain_running else "用本地识别"} ({detail})')
             alert(kind, self._model)
             return None
