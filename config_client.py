@@ -74,9 +74,9 @@ class ClientConfig:
     # 托盘「识别」切换, 以 user_state.json 为准. 需要环境变量 DASHSCOPE_API_KEY. 费用按音频时长, 实测一天约 35 分钟音频, 几毛钱
     asr_engine = 'qwen-stream'  # 选项见 core/client/audio/cloud_asr.ENGINES: qwen-stream (流式) / qwen-batch / minimax-batch (非流式) / local
     asr_cloud_timeout = 1.5     # 流式: 松开后等最终结果的上限 (秒), 超时用本地识别
-    asr_batch_timeout = 6.0     # 非流式: 松开后上传 + 识别的上限 (秒; 55s 录音实测 1.7~2.1s)
+    asr_batch_timeout = 3.0     # 非流式: 松开后上传 + 识别的上限 (秒). 2026-09-30 实测 30 条 stepaudio 样本中位 0.80s, p95 1.41s, p99 ≈ 1.5s; 4 条 qwen3 中位 1.22s. 3s 仍宽于 p99 (旧 6s 太松)
     asr_fallback = ['qwen-batch', 'step-batch', 'mimo-batch', 'minimax-batch', 'doubao-batch', 'zhipu-batch', 'local:qwen_asr']  # 候补顺序 (设置窗口拖拽): 非流式云端 key / 'local:<model_type>'; 走到第一个本地为止
-    asr_hedge_sec = 2.0         # 主力这么久还没出结果就同时发给下一个候补 (每 10 秒音频再加 0.5 秒)
+    asr_hedge_sec = 1.0         # 主力这么久还没结果就同时发给下一个候补 (每 10 秒音频再加 0.5 秒). 1s 早于 stepaudio 中位 0.80s, 让候补几乎与主力同时启动 (旧 2s 太迟)
     polish_structure = False    # 结构化整理: 多件事排成编号列表并换行 (托盘「二次整理」里勾选; 需要先选服务商)
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断

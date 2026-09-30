@@ -536,7 +536,7 @@ class Chain:
         pcm = np.concatenate(self._pcm)
         audio = len(pcm) / 16000
         hedge = getattr(Config, 'asr_hedge_sec', 2.0) + audio / 10 * 0.5
-        deadline = time.perf_counter() + 10.0 + audio * 0.05     # 整条链的上限 (58s 长句约 13s)
+        deadline = time.perf_counter() + 8.0 + audio * 0.2     # 整条链的上限. 30s 长句给 14s. 2026-09-30 反推: 旧 10s+0.05*audio 太短, stepaudio timeout 后 chain 余量不够候补完成
         queue, pending, primary_failed = list(self._fallbacks), {}, self._primary is None
         batch_timeout = getattr(Config, 'asr_batch_timeout', 6.0) + audio * 0.05
 
