@@ -210,8 +210,8 @@ class AudioRecorder:
                             self._file_manager.finish()
                         if self._cloud is not None:
                             self._cloud.cancel()
-                        from core.client.ui.recording_toast import close_active
-                        close_active()
+                        from core.client.ui.recording_toast import warn_active   # 本地改 2026-10-02: 不送识别的"没声音"也要给反馈, 不能默默关 (用户反馈)
+                        warn_active('no voice detected')
                         break
 
                     # 如果有缓存的数据未发送，先发送缓存
