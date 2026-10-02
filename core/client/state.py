@@ -62,6 +62,16 @@ class ClientState:
     recording: bool = False
     recording_start_time: float = 0.0
     audio_files: Dict[str, Path] = field(default_factory=dict)
+    voice_levels: Dict[str, dict] = field(default_factory=dict)
+
+    def set_voice_level(self, task_id: str, level: dict) -> None:
+        """按任务保留判定数据，限制数量，避免迟到结果套用下一句。"""
+        self.voice_levels[task_id] = dict(level)
+        while len(self.voice_levels) > 128:
+            self.voice_levels.pop(next(iter(self.voice_levels)))
+
+    def pop_voice_level(self, task_id: str) -> Optional[dict]:
+        return self.voice_levels.pop(task_id, None)
 
     # 最近一次识别结果（用于手动添加纠错记录）
     last_recognition_text: Optional[str] = None
@@ -102,6 +112,7 @@ class ClientState:
         self.recording = False
         self.recording_start_time = 0.0
         self.audio_files.clear()
+        self.voice_levels.clear()
         
         logger.debug("客户端状态重置完成")
     

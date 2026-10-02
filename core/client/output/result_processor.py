@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import asyncio
+from core.client.voice_trace import event as trace_event
+from core.client.voice_gate import vad_reasons
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -192,6 +194,8 @@ class ResultProcessor:
         delay = message.time_complete - message.time_submit
 
         if message.is_final:
+            trace_event(message.task_id, 'asr_final', chars=len(text),
+                        server_processing_ms=round(delay * 1000, 1))
             logger.info(f"收到最终识别结果 ({len(text)} 字), 时延: {delay:.2f}s")
             logger.debug(f"识别结果全文: {text}")
             from core.client import calibration   # 本地改: 麦克风校准中, 结果只用来打分, 不粘贴
@@ -209,10 +213,14 @@ class ResultProcessor:
             return
 
         # 本地改 2026-10-02: 松开右 Alt 后, 若录音基本没声音 (SNR < 12 dB) -> 走警示 toast, 不输出文字到活动窗口
-        _level = getattr(self.state, 'last_level', None) or {}
+        _level = self.state.pop_voice_level(message.task_id)
+        if _level is None:
+            trace_event(message.task_id, 'gate_data_missing', policy='skip_task_level_gates')
+            _level = {}
         _snr = _level.get('snr') if isinstance(_level, dict) else None
         if isinstance(_snr, (int, float)) and _snr < 12:
             logger.info(f'识别结果前判定无声音 (SNR {_snr:.0f} dB < 12), 走警示 toast 不输出, 任务ID: {message.task_id}')
+            trace_event(message.task_id, 'output_rejected', reason='snr_below_12', snr=_snr)
             warn_recording_hud('no voice detected')
             console.print('    [yellow]未接收到声音[/yellow]')
             self._log_modifier_key_state()
@@ -223,15 +231,13 @@ class ResultProcessor:
         # 判定与 recorder 同口径: 语音时长过短 或 占比过低
         _vad_sec = _level.get('vad_speech') if isinstance(_level, dict) else None
         _vad_ratio = _level.get('vad_ratio') if isinstance(_level, dict) else None
-        _vad_no_voice = (
-            isinstance(_vad_sec, (int, float))
-            and (
-                _vad_sec < Config.vad_min_speech_sec
-                or (isinstance(_vad_ratio, (int, float)) and _vad_ratio < Config.vad_max_speech_ratio)
-            )
-        )
+        _vad_no_voice = bool(vad_reasons(
+            {'speech_sec': _vad_sec, 'ratio': _vad_ratio},
+            Config.vad_min_speech_sec, Config.vad_max_speech_ratio,
+        ))
         if Config.vad_enable and _vad_no_voice:
             logger.info(f'识别结果前 VAD 判定无人声 (语音时长 {_vad_sec}s, 占比 {_vad_ratio}), 走警示 toast 不输出, 任务ID: {message.task_id}')
+            trace_event(message.task_id, 'output_rejected', reason='vad', speech_sec=_vad_sec, ratio=_vad_ratio)
             warn_recording_hud('no voice detected')
             console.print('    [yellow]未检测到语音[/yellow]')
             self._log_modifier_key_state()
@@ -308,6 +314,9 @@ class ResultProcessor:
                 asyncio.create_task(_auto_enter(delay))
 
         # LLM 处理和输出 (carry_punc: 接着上一句写时, 第一次写出前补上上一句被删的标点)
+        trace_event(message.task_id, 'output_begin', chars=len(text), paste_requested=bool(paste),
+                    llm_enabled=bool(Config.llm_enabled))
+        _output_started = time.monotonic()
         carry_punc.arm()
         llm_result = None
         if Config.llm_enabled:
@@ -325,6 +334,9 @@ class ResultProcessor:
             await self.output.output(text, paste=paste)
             self.state.set_output_text(text)
             broadcast_output_udp(text)
+        trace_event(message.task_id, 'output_returned',
+                    output_ms=round((time.monotonic() - _output_started) * 1000, 1),
+                    path='llm' if Config.llm_enabled else 'direct')
         carry_punc.remember('' if auto_enter else TextOutput.last_stripped)   # 自动回车 = 已发出, 下一句是新消息
         if Config.polish or Config.asr_engine != 'local':   # 本句的整理 / 在线识别用量已记账, 刷新托盘文字
             from core.ui.tray import refresh_menu

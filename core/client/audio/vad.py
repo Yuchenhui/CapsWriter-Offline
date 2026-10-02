@@ -30,8 +30,8 @@ _state = None       # 跨句保留的 LSTM 状态? 不: 每句清零, 句间独�
 
 
 def _model_path() -> Path:
-    # 客户端工作目录是安装目录, 模型放 models/ 与其它模型同层
-    return Path('models') / 'silero_vad.onnx'
+    # 由源码位置确定安装根目录，不依赖启动目录。
+    return Path(__file__).resolve().parents[3] / 'models' / 'silero_vad.onnx'
 
 
 def _get_session():
@@ -60,10 +60,10 @@ def speech_stats(pcm: np.ndarray) -> dict:
     total_sec = len(pcm) / _SR
     if total_sec < 0.2:   # 太短没有判定意义, 放行交给上层判据
         return {'speech_sec': None, 'total_sec': round(total_sec, 2), 'max_prob': None, 'ratio': None}
-    sess = _get_session()
-    if sess is None:
-        return {'speech_sec': None, 'total_sec': round(total_sec, 2), 'max_prob': None, 'ratio': None}
     try:
+        sess = _get_session()
+        if sess is None:
+            return {'speech_sec': None, 'total_sec': round(total_sec, 2), 'max_prob': None, 'ratio': None}
         x = pcm.astype(np.float32)
         if np.issubdtype(pcm.dtype, np.integer):
             x /= 32768.0                                   # int16 刻度 -> ±1
@@ -93,5 +93,5 @@ def speech_stats(pcm: np.ndarray) -> dict:
                 'max_prob': round(max_prob, 3),
                 'ratio': round(speech_sec / total_sec, 3) if total_sec > 0 else 0.0}
     except Exception as e:
-        logger.warning(f'[vad] VAD 运行失败, 本句放行: {e}')
-        return {'speech_sec': None, 'total_sec': total_sec, 'max_prob': None}
+        logger.warning(f'[vad] VAD 加载或运行失败, 本句跳过 VAD: {type(e).__name__}: {e}')
+        return {'speech_sec': None, 'total_sec': round(total_sec, 2), 'max_prob': None, 'ratio': None}

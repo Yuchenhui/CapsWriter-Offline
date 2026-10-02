@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from core.client.voice_trace import event as trace_event
+from core.client.voice_gate import vad_reasons
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -102,6 +104,7 @@ class AudioRecorder:
             # 生成唯一任务 ID
             self.task_id = str(uuid.uuid1())
             logger.debug(f"创建录音任务，任务ID: {self.task_id}")
+            trace_event(self.task_id, 'start', requested_engine=Config.asr_engine)
 
             self._start_time = 0.0
             self._duration = 0.0
@@ -189,6 +192,7 @@ class AudioRecorder:
                     asyncio.create_task(self._send_message(message))
                     
                 elif task['type'] == 'finish':
+                    trace_event(self.task_id, 'release')
                     if self._nsamp:
                         _db = lambda v: 20 * np.log10(v) if v > 0 else -120.0
                         from core.client.audio.level import noise_voice
@@ -199,6 +203,7 @@ class AudioRecorder:
                         self.state.last_level = {'avg': round(float(_db((self._sumsq / self._nsamp) ** 0.5)), 1),
                                                  'peak': round(float(_db(self._peak)), 1), 'noise': round(_noise, 1),
                                                  'voice': round(_voice, 1), 'snr': round(_voice - _noise, 1)}
+                    self.state.set_voice_level(self.task_id, dict(getattr(self.state, 'last_level', {}) or {}))
                     # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
                     # 实测 2026-09-23: 没说话时 Qwen3 会把术语表 (context) 念成一段"识别结果" (平均 -53.5 / -50.1 dBFS)
                     _gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
@@ -206,6 +211,8 @@ class AudioRecorder:
                     from core.client.audio.level import is_silence   # 本地改: 平均低 且 信噪比低 才算没说话, 不误伤小声说话
                     if self._duration == 0.0 and is_silence(_rms, self._blk_db, _gate):
                         logger.info(f"判定没说话 (平均 {20 * np.log10(max(_rms, 1e-6)):.1f} dBFS < 门限, 信噪比也低), 不送识别, 任务ID: {self.task_id}")
+                        trace_event(self.task_id, 'rejected', reason='silence_gate', level=self.state.last_level,
+                                    rms_gate=_gate)
                         console.print('    录音太安静, 未识别')
                         from core.client import calibration
                         calibration.on_silence()
@@ -259,11 +266,24 @@ class AudioRecorder:
                         _vinfo = _vad_mod.speech_stats(np.concatenate(self._vad_buf))
                         _vad_ms = (__import__('time').monotonic() - _t0) * 1000
                         _vsec = _vinfo.get('speech_sec')
+                        _audio = np.concatenate(self._vad_buf)
+                        _peak_in = float(np.max(np.abs(_audio)))
+                        trace_event(self.task_id, 'vad_complete', input_dtype=str(_audio.dtype),
+                                    sample_rate=16000, samples=len(_audio), input_peak=_peak_in,
+                                    normalization_gain=0.9 / (_peak_in or 1e-9), level=self.state.last_level,
+                                    vad=_vinfo, vad_ms=round(_vad_ms, 1),
+                                    min_speech_sec=Config.vad_min_speech_sec,
+                                    min_speech_ratio=Config.vad_max_speech_ratio)
                         self.state.last_level = {**(self.state.last_level or {}), 'vad_speech': _vsec, 'vad_ratio': _vinfo.get('ratio')}
+                        self.state.set_voice_level(self.task_id, self.state.last_level)
+                        _reasons = vad_reasons(_vinfo, Config.vad_min_speech_sec, Config.vad_max_speech_ratio)
                         if _vsec is None:
                             logger.info(f"VAD 未参与判定 (speech_sec=None, 模型缺失/音频过短/运行失败), 放行, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
-                        elif _vsec < Config.vad_min_speech_sec or (_vinfo.get('ratio') or 1.0) < Config.vad_max_speech_ratio:
+                        elif _reasons:
                             logger.info(f"VAD 判定没有人声 (语音时长 {_vsec}s < {Config.vad_min_speech_sec}s 或占比 {_vinfo.get('ratio')} < {Config.vad_max_speech_ratio}, 总时长 {_vinfo['total_sec']}s, 峰值概率 {_vinfo['max_prob']}, 耗时 {_vad_ms:.0f}ms), 不送识别, 任务ID: {self.task_id}")
+                            trace_event(self.task_id, 'rejected',
+                                        reason='vad', duration_trigger=_vsec < Config.vad_min_speech_sec,
+                                        ratio_trigger='speech_ratio' in _reasons)
                             console.print('    未检测到语音')
                             from core.client import calibration
                             calibration.on_silence()
@@ -275,7 +295,8 @@ class AudioRecorder:
                         else:
                             logger.info(f"VAD 判定有人声 (语音时长 {_vsec}s, 占比 {_vinfo.get('ratio')}, 总时长 {_vinfo['total_sec']}s, 峰值概率 {_vinfo['max_prob']}, 耗时 {_vad_ms:.0f}ms), 继续识别, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
                     elif Config.vad_enable:
-                        self.state.last_level = {**(self.state.last_level or {}), 'vad_speech': None}
+                        self.state.last_level = {**(self.state.last_level or {}), 'vad_speech': None, 'vad_ratio': None}
+                        self.state.set_voice_level(self.task_id, self.state.last_level)
                         logger.info(f"VAD 未参与判定 (本句无音频缓冲), 放行, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
 
                     # 完成写入本地文件
@@ -293,6 +314,10 @@ class AudioRecorder:
                         from core.client.audio import cloud_asr
                         cloud_text = await self._cloud.finish(cloud_asr.finish_timeout()) or ''
                         self._cloud = None
+                    trace_event(self.task_id, 'asr_route', requested_engine=Config.asr_engine,
+                                route='cloud' if cloud_text else 'local', cloud_chars=len(cloud_text),
+                                reason='cloud_result' if cloud_text else
+                                ('local_selected' if Config.asr_engine == 'local' else 'cloud_no_usable_result'))
                     if not cloud_text:   # 本句由本地识别 (本地引擎 / 在线失败兜底): 记用量 (费用 0), 统计页显示本地句数与时长
                         try:
                             import os
@@ -343,6 +368,7 @@ class AudioRecorder:
             raise
 
         except Exception as e:
+            trace_event(self.task_id, 'recording_error', error_type=type(e).__name__)
             logger.error(f"录音任务错误: {e}", exc_info=True)
     
     def get_file_manager(self) -> Optional[AudioFileManager]:
