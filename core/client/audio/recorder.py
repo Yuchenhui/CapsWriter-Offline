@@ -64,6 +64,7 @@ class AudioRecorder:
         self._start_time: float = 0.0
         self._duration: float = 0.0
         self._cache: list = []
+        self._vad_buf: list = []   # 本地改 2026-10-03: 攒 16k 重采样后的音频, 松开后跑 Silero VAD 判人声
 
     @property
     def state(self) -> ClientState:
@@ -105,6 +106,7 @@ class AudioRecorder:
             self._start_time = 0.0
             self._duration = 0.0
             self._cache = []
+            self._vad_buf = []   # 本地改 2026-10-03: VAD 音频缓冲随句清空
             self._sumsq, self._nsamp, self._peak = 0.0, 0, 0.0   # 诊断: 本句音量
             self._blk_db = []   # 每 50ms 块的电平, 算底噪 / 信噪比
             from core.client.audio.decimate import Decimator3
@@ -160,6 +162,8 @@ class AudioRecorder:
                         self._cache.clear()
                     else:
                         data = task['data']
+                    _dec16 = self._dec.process(data)   # 本地改 2026-10-03: 降采样结果留给 VAD 攒着
+                    self._vad_buf.append(_dec16.copy())
                     
                     # 保存音频至本地文件
                     self._duration += len(data) / 48000
@@ -171,7 +175,7 @@ class AudioRecorder:
                         task_id=self.task_id,
                         source='mic',
                         data=base64.b64encode(
-                            self._dec.process(data).tobytes()
+                            _dec16.tobytes()
                         ).decode('utf-8'),
                         is_final=False,
                         time_start=self._start_time,
@@ -218,7 +222,9 @@ class AudioRecorder:
                     if self._cache:
                         data = np.concatenate(self._cache)
                         self._cache.clear()
-                        
+                        _dec16 = self._dec.process(data)   # 本地改 2026-10-03: 与上面一致, 攒进 VAD 缓冲 (短句全在这条路径)
+                        self._vad_buf.append(_dec16.copy())
+
                         self._duration += len(data) / 48000
                         if Config.save_audio and self._file_manager:
                             # 本地改: F6 攒 10s 再发, 短句从没走到"创建音频文件"那步 -> 这里补建, 否则录音全丢 ("文件未打开")
@@ -231,7 +237,7 @@ class AudioRecorder:
                             task_id=self.task_id,
                             source='mic',
                             data=base64.b64encode(
-                                self._dec.process(data).tobytes()
+                                _dec16.tobytes()
                             ).decode('utf-8'),
                             is_final=False,
                             time_start=self._start_time,
@@ -243,6 +249,34 @@ class AudioRecorder:
                             language=Config.language,
                         )
                         asyncio.create_task(self._send_message(message))
+
+                    # 本地改 2026-10-03: Silero VAD —— 敲桌/键盘声是真实物理声音, SNR 达标拦不住;
+                    # VAD 按语音概率区分人声与非语音, 非语音整句丢弃 (docs/2026-10-03-no-voice-output-terms.md 待解决项).
+                    # 位置注意: 必须在上面缓存补发之后, 否则短句 (全程在 _cache 里) 完全绕过 VAD
+                    if Config.vad_enable and self._vad_buf:
+                        from core.client.audio import vad as _vad_mod
+                        _t0 = __import__('time').monotonic()
+                        _vinfo = _vad_mod.speech_stats(np.concatenate(self._vad_buf))
+                        _vad_ms = (__import__('time').monotonic() - _t0) * 1000
+                        _vsec = _vinfo.get('speech_sec')
+                        self.state.last_level = {**(self.state.last_level or {}), 'vad_speech': _vsec, 'vad_ratio': _vinfo.get('ratio')}
+                        if _vsec is None:
+                            logger.info(f"VAD 未参与判定 (speech_sec=None, 模型缺失/音频过短/运行失败), 放行, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
+                        elif _vsec < Config.vad_min_speech_sec or (_vinfo.get('ratio') or 1.0) < Config.vad_max_speech_ratio:
+                            logger.info(f"VAD 判定没有人声 (语音时长 {_vsec}s < {Config.vad_min_speech_sec}s 或占比 {_vinfo.get('ratio')} < {Config.vad_max_speech_ratio}, 总时长 {_vinfo['total_sec']}s, 峰值概率 {_vinfo['max_prob']}, 耗时 {_vad_ms:.0f}ms), 不送识别, 任务ID: {self.task_id}")
+                            console.print('    未检测到语音')
+                            from core.client import calibration
+                            calibration.on_silence()
+                            if self._cloud is not None:
+                                self._cloud.cancel()
+                            from core.client.ui.recording_toast import warn_active
+                            warn_active('no voice detected')
+                            break
+                        else:
+                            logger.info(f"VAD 判定有人声 (语音时长 {_vsec}s, 占比 {_vinfo.get('ratio')}, 总时长 {_vinfo['total_sec']}s, 峰值概率 {_vinfo['max_prob']}, 耗时 {_vad_ms:.0f}ms), 继续识别, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
+                    elif Config.vad_enable:
+                        self.state.last_level = {**(self.state.last_level or {}), 'vad_speech': None}
+                        logger.info(f"VAD 未参与判定 (本句无音频缓冲), 放行, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
 
                     # 完成写入本地文件
                     if Config.save_audio and self._file_manager:

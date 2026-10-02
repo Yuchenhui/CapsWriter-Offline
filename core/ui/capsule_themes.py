@@ -646,7 +646,16 @@ class Capsule:
             if m < 1:
                 th.paint_processing(inner, x0(w), y0, t, 1 - ease_out(m / 0.6))   # 缩到 60% 前淡完
             if el > SHRINK:
-                th.paint_done(inner, self.CW / 2, 1 + th.H / 2, (el - SHRINK) / POP)
+                if getattr(self, 'warning', False):
+                    # Use the same terminal animation as success, with an amber !.
+                    scale, alpha = pop((el - SHRINK) / POP)
+                    cx, cy = self.CW / 2, 1 + th.H / 2
+                    inner.circle(cx, cy, 12 * scale, fill=rgba('#FFC440', alpha))
+                    color = rgba('#FFFFFF', alpha)
+                    inner.polyline([(cx, cy - 7 * scale), (cx, cy + 2 * scale)], color, 3 * scale)
+                    inner.circle(cx, cy + 7 * scale, 1.7 * scale, fill=color)
+                else:
+                    th.paint_done(inner, self.CW / 2, 1 + th.H / 2, (el - SHRINK) / POP)
 
         # 内容 (4 倍画, 预乘后缩小) 按外壳蒙版裁剪 -> 叠到缓存的外壳上
         shell, mask = self._shell(w, self.mode)

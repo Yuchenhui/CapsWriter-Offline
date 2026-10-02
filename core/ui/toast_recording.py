@@ -478,15 +478,14 @@ class ToastWindowRecording:
         self._last_t = now
         # 本地改 2026-10-02: warn 模式走 processing 视觉 (扫光动画), 自己叠画 ⚠ + 文字
         # 注意: done 必须传 'done' 给主题, 否则 finished() 永远 False → 胶囊不自动销毁 (2026-10-02 实测)
-        theme_mode = {'listening': 'recording', 'done': 'done'}.get(self._applied_mode, 'processing')
+        self._themed.warning = self._applied_mode == 'warn'
+        theme_mode = {'listening': 'recording', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
         w = _cap_warn(time.time()) if self._applied_mode == 'listening' else 0.0
         if w > 0.01:
             img = _tint_red(img, w)   # ponytail: 只做了主题胶囊, 经典样式 (dark/light/auto) 不闪
-        if self._applied_mode == 'warn' and self._warn_active:
-            img = self._overlay_warn(img)
         self._ulw.blit(img, a)
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
@@ -505,6 +504,13 @@ class ToastWindowRecording:
         dt = 0.016 if self._bubble_t is None else min(0.1, now - self._bubble_t)
         self._bubble_t = now
         if self._bubble_off:
+            return
+        if self._applied_mode == 'warn':
+            if self._bubble is not None:
+                self._bubble.destroy()
+                self._bubble = None
+            self._preview = ''
+            self._bubble_off = True
             return
         try:
             if self._bubble is None:
@@ -660,7 +666,9 @@ class ToastWindowRecording:
         可能由非 Tk 线程调用，因此只做原子赋值（先超时后模式，_tick 察觉模式
         切换时超时值已就绪），重绘在 Tk 线程 _tick 中完成。
         """
-        if new_text.startswith('preview:'):   # 本地改 2026-09-25: 在线识别中间结果, 只存文字, 不切状态
+        if new_text.startswith('preview:'):   # Ignore late previews after rejection.
+            if self._mode == 'warn':
+                return
             self._preview = new_text[8:]
             return
         if new_text == 'done':            # 本地改 2026-09-24: 文字已上屏 -> 完成态 (主题胶囊播对勾, 经典样式直接关)

@@ -37,6 +37,10 @@ class ClientConfig:
                                 # 依据 2026-09-23 实测: 正常说话平均 -20 ~ -38.6 dBFS, 没说话误识别 -53.5 / -50.1 dBFS
     silence_gate_hold = 10      # 门限开启时, 前 N 秒音频留在客户端等松开再判断 (更长的录音照常边录边发, 不做门限)
 
+    vad_enable         = True   # 本地改 2026-10-03: Silero VAD 语音活动检测. 敲桌/键盘声 SNR 达标, SNR 判据拦不住; VAD 按语音概率区分人声与非语音, 非语音整句丢弃 (需 models/silero_vad.onnx, 缺失时自动放行不影响使用)
+    vad_min_speech_sec = 0.25   # 整句语音概率 > 0.5 的累计时长低于此值 (秒) 判无人声. 正常一句话至少 0.5s 人声
+    vad_max_speech_ratio = 0.12 # 整句语音占比 (语音时长/总时长) 低于此值也判无人声: 长按里只夹零星噪声尖峰 (如敲桌被误判 1.15s/12.8s=9%) 的场景, 光看时长拦不住
+
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
     restore_clip = True         # 语音粘贴后恢复原剪贴板；图片/文件/富文本不临时覆盖，改用模拟打字
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴

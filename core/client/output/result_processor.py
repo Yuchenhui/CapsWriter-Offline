@@ -219,6 +219,25 @@ class ResultProcessor:
             console.line()
             return
 
+        # 本地改 2026-10-03: VAD 兑底 —— 敲桌/键盘声 SNR 达标, 上面 SNR 拦不住; 录音端若已判无人声, 这里也不输出.
+        # 判定与 recorder 同口径: 语音时长过短 或 占比过低
+        _vad_sec = _level.get('vad_speech') if isinstance(_level, dict) else None
+        _vad_ratio = _level.get('vad_ratio') if isinstance(_level, dict) else None
+        _vad_no_voice = (
+            isinstance(_vad_sec, (int, float))
+            and (
+                _vad_sec < Config.vad_min_speech_sec
+                or (isinstance(_vad_ratio, (int, float)) and _vad_ratio < Config.vad_max_speech_ratio)
+            )
+        )
+        if Config.vad_enable and _vad_no_voice:
+            logger.info(f'识别结果前 VAD 判定无人声 (语音时长 {_vad_sec}s, 占比 {_vad_ratio}), 走警示 toast 不输出, 任务ID: {message.task_id}')
+            warn_recording_hud('no voice detected')
+            console.print('    [yellow]未检测到语音[/yellow]')
+            self._log_modifier_key_state()
+            console.line()
+            return
+
         # 繁体转换
         if Config.traditional_convert:
             try:

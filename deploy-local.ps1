@@ -14,6 +14,7 @@ if (-not (Test-Path "$InstallDir\start_server.exe")) { throw "不是 CapsWriter 
 robocopy "$src\core" "$InstallDir\core" *.py /S /NJH /NJS /NDL /NP | Out-Host
 if ($LASTEXITCODE -ge 8) { throw "robocopy core 失败: $LASTEXITCODE" }
 robocopy "$src\LLM" "$InstallDir\LLM" *.py /NJH /NJS /NDL /NP | Out-Host
+Copy-Item "$src\models\silero_vad.onnx" "$InstallDir\models\silero_vad.onnx" -Force   # 本地改 2026-10-03: Silero VAD 模型 (v5.1.2, 敲桌/键盘声过滤)
 if ($LASTEXITCODE -ge 8) { throw "robocopy LLM 失败: $LASTEXITCODE" }
 foreach ($f in 'config_client.py', 'config_server.py', 'start-hidden.vbs') {
     Copy-Item "$src\$f" "$InstallDir\$f" -Force
