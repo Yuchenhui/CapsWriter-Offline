@@ -22,12 +22,14 @@ from __future__ import annotations
 import math
 import time
 import random
+import os
 import tkinter as tk
 from core.ui.layered_renderer import LayeredRenderer
 from typing import Optional, Callable, Union
 
 from .toast_constants import DEFAULT_FONT_FAMILY
 from .toast_logger import get_toast_logger
+from PIL import Image, ImageDraw, ImageFont   # 本地改 2026-10-02: warn 模式在主题胶囊 img 上叠画 ⚠ + 文字
 
 cap_deadline = 0.0          # 本句录音到时长上限的时刻 (time.time()); 0 = 不限. 由 ShortcutTask 设置
 _WARN_RED = (255, 59, 48, 255)
@@ -296,6 +298,10 @@ class ToastWindowRecording:
         self._applied_mode = 'listening'
         self._proc_frames = 0                 # 处理态帧计数（仅驱动扫光动画）
         self._proc_timeout_ms = _PROC_TIMEOUT_MS
+        self._warn_text = ''                  # 本地改 2026-10-02: 警示态显示文字
+        self._warn_active = False             # 本地改 2026-10-02: 警示态激活标记, 绘制时叠画 ⚠ + 文字
+        self._warn_log_emitted = False        # 本地改 2026-10-02: 首次成功叠画打 INFO (避免每帧刷屏)
+        self._warn_err_emitted = False        # 本地改 2026-10-02: 首次失败打 WARN, 之后静默
         from core.ui.layered_renderer import theme
         self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
         self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
@@ -449,8 +455,10 @@ class ToastWindowRecording:
 
         # 状态切换：update_text 可能从任意线程置 _mode，重绘只在本 Tk 线程做
         if self._mode != self._applied_mode:
+            prev = self._applied_mode
             self._applied_mode = self._mode
-            if self._mode == 'done':
+            logger.info(f'[toast.warn] mode 切换 {prev} -> {self._mode} (warn_active={self._warn_active}, warn_text={self._warn_text!r})')   # 本地改 2026-10-02: 全链路 log
+            if self._mode == 'done':     # 本地改 2026-10-02: warn 不再走 done 路径(0.5s 闪没), 改走 processing 自带超时
                 if self._themed is None:     # 经典样式没有完成动画: 直接关
                     self._on_proc_timeout()
                     return
@@ -460,17 +468,25 @@ class ToastWindowRecording:
             self._themed_frame()
             return
         self._tick_classic()
+        # 本地改 2026-10-02: 经典样式下, 警示态在 canvas 上画 ⚠ + 文字
+        if self._applied_mode == 'warn' and self._warn_active:
+            self._draw_warn_classic()
 
     def _themed_frame(self) -> None:
         now = time.perf_counter()
         dt = 0.016 if self._last_t is None else now - self._last_t
         self._last_t = now
-        self._themed.set_mode({'listening': 'recording'}.get(self._applied_mode, self._applied_mode), now)
+        # 本地改 2026-10-02: warn 模式走 processing 视觉 (扫光动画), 自己叠画 ⚠ + 文字
+        # 注意: done 必须传 'done' 给主题, 否则 finished() 永远 False → 胶囊不自动销毁 (2026-10-02 实测)
+        theme_mode = {'listening': 'recording', 'done': 'done'}.get(self._applied_mode, 'processing')
+        self._themed.set_mode(theme_mode, now)
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
         w = _cap_warn(time.time()) if self._applied_mode == 'listening' else 0.0
         if w > 0.01:
             img = _tint_red(img, w)   # ponytail: 只做了主题胶囊, 经典样式 (dark/light/auto) 不闪
+        if self._applied_mode == 'warn' and self._warn_active:
+            img = self._overlay_warn(img)
         self._ulw.blit(img, a)
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
@@ -650,6 +666,16 @@ class ToastWindowRecording:
         if new_text == 'done':            # 本地改 2026-09-24: 文字已上屏 -> 完成态 (主题胶囊播对勾, 经典样式直接关)
             self._mode = 'done'
             return
+        if new_text.startswith('warn:'):   # 本地改 2026-10-02: 无声音提示, 走 processing 路径(扫光动画)+ 叠画 ⚠ + 文字, 3 秒自毁
+            self._warn_text = new_text[5:]
+            self._warn_active = True
+            self._warn_log_emitted = False
+            self._warn_err_emitted = False
+            self._warn_t0 = None   # 重置动画起点 (本地反馈 2026-10-02: 弹出动画需要)
+            self._proc_timeout_ms = 3000   # 够看清 (本地反馈 2026-10-02: 走 done 路径 0.5s 闪没)
+            self._mode = 'warn'
+            logger.info(f'[toast.warn] update_text 收到 warn, text={self._warn_text!r}, 3 秒后自毁')
+            return
         try:
             self._proc_timeout_ms = max(_PROC_TIMEOUT_MS, int(new_text.split(':', 1)[1]))
         except (IndexError, ValueError):
@@ -658,3 +684,98 @@ class ToastWindowRecording:
 
     def set_text(self, new_text: str) -> None:     # pragma: no cover - 兼容占位
         pass
+
+    # -- 警示态叠画 (本地改 2026-10-02) ---------------------------------------
+    def _warn_font(self, size: int = 14):
+        """PIL 真字体路径: 'Microsoft YaHei UI' 是 Windows 字体别名, PIL 不识别; 列常见路径找 .ttc/.ttf, 找不到用 PIL 内置默认位图字体"""
+        size = max(6, round(size * self._scale))
+        for p in (r'C:\Windows\Fonts\msyh.ttc', r'C:\Windows\Fonts\msyh.ttf',
+                  r'C:\Windows\Fonts\segoeui.ttf', r'C:\Windows\Fonts\arial.ttf',
+                  r'C:\Windows\Fonts\mingliu.ttc'):
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
+
+    def _overlay_warn(self, img):
+        """主题胶囊中央画一个琥珀色圆 + ⚠ (跟主题胶囊 paint_done 的圆形弹出动画一样).
+        本地改 2026-10-02:
+        - 圆形 + ⚠ → 4x 超采样画再 LANCZOS 缩 (memory ui-drawing-antialias)
+        - 缩放曲线 = capsule_themes.pop() (跟对号动画曲线一致)
+        """
+        try:
+            W, H = img.size
+            SS = 4
+            D = 40                              # 圆直径 (跟对号同尺寸)
+            big = Image.new('RGBA', (D * SS, D * SS), (0, 0, 0, 0))
+            dd = ImageDraw.Draw(big)
+            # 琥珀色填充圆 + 略深的边
+            dd.ellipse((0, 0, D * SS - 1, D * SS - 1), fill=(255, 196, 64, 255), outline=(184, 134, 11, 255), width=SS * 2)
+            # ⚠ 字符: 画到超采样画板, 字号 = D * SS * 0.6 (占比 60%)
+            f = self._warn_font(int(D * 0.6))
+            try:
+                tw, th = dd.textbbox((0, 0), '!', font=f)[2:]
+            except Exception:
+                tw, th = dd.textsize('!', font=f)
+            # ! 字符 + 下方圆点 (更通用的警示图案, 不用可能字体里没有 ⚠ 的 Unicode)
+            cx = (D * SS) / 2
+            cy = (D * SS) / 2 - th / 2
+            # 上半部分 (竖线)
+            bar_w = max(SS, tw // 3)
+            dd.rectangle((cx - bar_w / 2, cy, cx + bar_w / 2, cy + th * 0.65), fill=(38, 44, 56, 255))
+            # 下半部分 (圆点)
+            dot_r = bar_w
+            cy_dot = cy + th * 0.85
+            dd.ellipse((cx - dot_r, cy_dot - dot_r, cx + dot_r, cy_dot + dot_r), fill=(38, 44, 56, 255))
+            small = big.resize((D, D), Image.LANCZOS)
+            t = self._warn_t()
+            from core.ui.capsule_themes import pop as _pop
+            s, a = _pop(min(1.0, t / 0.45))
+            sw, sh = max(1, int(D * s)), max(1, int(D * s))
+            scaled = small.resize((sw, sh), Image.LANCZOS) if (sw, sh) != (D, D) else small
+            px, py = (W - sw) // 2, (H - sh) // 2
+            layer = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            layer.paste(scaled, (px, py), scaled)
+            if not self._warn_log_emitted:
+                logger.info(f'warn 叠画成功(SS={SS}, D={D}, pop 曲线): 琥珀圆 + ⚠ ({int(sw)}x{int(sh)})')
+                self._warn_log_emitted = True
+            return Image.alpha_composite(img, layer)
+        except Exception as e:
+            if not self._warn_err_emitted:
+                logger.warning(f'warn 叠画持续失败, 后续静默: {e}')
+                self._warn_err_emitted = True
+            return img
+
+    def _warn_t(self) -> float:
+        """warn 进度 0~1 (用 _proc_timeout_ms 当总时长, 默认 3000ms)"""
+        dur = max(1.0, getattr(self, '_proc_timeout_ms', 3000) / 1000.0)
+        t0 = getattr(self, '_warn_t0', None)
+        if t0 is None:
+            import time as _t
+            self._warn_t0 = _t.perf_counter()
+            t0 = self._warn_t0
+        import time as _t
+        return min(1.0, (_t.perf_counter() - t0) / dur)
+
+    def _draw_warn_classic(self) -> None:
+        """经典样式 canvas 上画 ⚠ + 警示文字"""
+        try:
+            self.canvas.delete('warn')
+            from tkinter import font as tkfont
+            ff = self._font_family or 'TkDefaultFont'
+            try:
+                f_icon = tkfont.Font(family=ff, size=14, weight='bold')
+            except Exception:
+                f_icon = tkfont.Font(size=14, weight='bold')
+            try:
+                f_text = tkfont.Font(family=ff, size=12)
+            except Exception:
+                f_text = tkfont.Font(size=12)
+            cx, cy = self._w / 2, self._h / 2
+            text = self._warn_text
+            self.canvas.create_text(cx - 4, cy, text='⚠', font=f_icon, fill='#ffc340', tags='warn', anchor='e')
+            self.canvas.create_text(cx + 4, cy, text=text, font=f_text, fill=_TEXT_FG, tags='warn', anchor='w')
+        except Exception as e:   # 本地改 2026-10-02: 同上, 不能拖死 _tick
+            logger.debug(f'经典样式 warn 绘制出错: {e}')
