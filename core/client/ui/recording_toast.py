@@ -57,6 +57,17 @@ def preview_active(text: str) -> None:
         inst.preview(text)
 
 
+def warn_active(text: str) -> None:   # 本地改 2026-10-02: 模块级入口, 让 result_processor 可调
+    """切到警示态: 复用完成态弹出动画 + 在胶囊中央画 ⚠ + text. 无活动胶囊时 no-op"""
+    logger.info(f'[toast.warn] warn_active 被调, text={text!r}, 活动实例={_active is not None}')   # 本地改 2026-10-02: 全链路 log
+    with _active_lock:
+        inst = _active
+    if inst is not None:
+        inst.warn(text)
+    else:
+        logger.warning('[toast.warn] warn_active 无活动胶囊, no-op (toast 已被关掉或还没起)')
+
+
 def _register(inst: 'RecordingToast') -> None:
     global _active
     with _active_lock:
@@ -150,6 +161,21 @@ class RecordingToast:
             self._processing = False
         except Exception as e:
             logger.error(f'切换完成态失败: {e}', exc_info=True)
+            self.stop()
+
+    def warn(self, text: str) -> None:
+        """切到警示态: 复用完成态的弹出/自毁动画, 中央画 ⚠ + 提示文字 (本地改 2026-10-02:
+        松开右 Alt 时 SNR<12 视为无声音, 不让结果 paste 到活动窗口, 走这条让用户看到反馈)"""
+        logger.info(f'[toast.warn] RecordingToast.warn 被调, msg_id={self._msg_id}, text={text!r}')   # 本地改 2026-10-02: 全链路 log
+        if self._msg_id is None or self._manager is None:
+            logger.warning('[toast.warn] msg_id/manager 为 None, 直接 return')
+            return
+        try:
+            self._manager.update_toast(self._msg_id, 'warn:' + text)
+            self._processing = False
+            logger.info('[toast.warn] update_toast(warn:...) 已发, 等 _tick 切到 warn mode')
+        except Exception as e:
+            logger.error(f'切换警示态失败: {e}', exc_info=True)
             self.stop()
 
     def _on_window_gone(self) -> None:
