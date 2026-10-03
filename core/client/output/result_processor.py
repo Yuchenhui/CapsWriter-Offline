@@ -26,6 +26,7 @@ from . import logger
 from core.client.udp.udp_broadcaster import broadcast_output_udp
 from core.tools.zhconv import convert as zhconv_convert
 from core.client.audio.file_manager import AudioFileManager
+from core.client.audio.level import SNR_MIN
 from core.client.llm.llm_write_md import write_llm_md
 from core.client.ui.recording_toast import close_processing as close_recording_hud, warn_active as warn_recording_hud
 
@@ -212,15 +213,15 @@ class ResultProcessor:
         if not message.is_final:
             return
 
-        # 本地改 2026-10-02: 松开右 Alt 后, 若录音基本没声音 (SNR < 12 dB) -> 走警示 toast, 不输出文字到活动窗口
+        # 与录音层共用 SNR_MIN；避免录音层按 8 dB 放行后，输出层仍按旧 12 dB 误拒绝。
         _level = self.state.pop_voice_level(message.task_id)
         if _level is None:
             trace_event(message.task_id, 'gate_data_missing', policy='skip_task_level_gates')
             _level = {}
         _snr = _level.get('snr') if isinstance(_level, dict) else None
-        if isinstance(_snr, (int, float)) and _snr < 12:
-            logger.info(f'识别结果前判定无声音 (SNR {_snr:.0f} dB < 12), 走警示 toast 不输出, 任务ID: {message.task_id}')
-            trace_event(message.task_id, 'output_rejected', reason='snr_below_12', snr=_snr)
+        if isinstance(_snr, (int, float)) and _snr < SNR_MIN:
+            logger.info(f'识别结果前判定无声音 (SNR {_snr:.1f} dB < {SNR_MIN:g}), 走警示 toast 不输出, 任务ID: {message.task_id}')
+            trace_event(message.task_id, 'output_rejected', reason='snr_below_min', snr=_snr, threshold=SNR_MIN)
             warn_recording_hud('no voice detected')
             console.print('    [yellow]未接收到声音[/yellow]')
             self._log_modifier_key_state()

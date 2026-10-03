@@ -39,7 +39,7 @@ class ClientConfig:
 
     vad_enable         = True   # 本地改 2026-10-03: Silero VAD 语音活动检测. 敲桌/键盘声 SNR 达标, SNR 判据拦不住; VAD 按语音概率区分人声与非语音, 非语音整句丢弃 (需 models/silero_vad.onnx, 缺失时自动放行不影响使用)
     vad_min_speech_sec = 0.25   # 整句语音概率 > 0.5 的累计时长低于此值 (秒) 判无人声. 正常一句话至少 0.5s 人声
-    vad_max_speech_ratio = 0.12 # 整句语音占比 (语音时长/总时长) 低于此值也判无人声: 长按里只夹零星噪声尖峰 (如敲桌被误判 1.15s/12.8s=9%) 的场景, 光看时长拦不住
+    vad_max_speech_ratio = 0.10 # 整句语音占比 (语音时长/总时长): 2026-10-04 由 0.12 放宽，避免误杀实测 10.8%/11.3% 的真实短句，仍拦住 9.1% 的噪声样本
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
     restore_clip = True         # 语音粘贴后恢复原剪贴板；图片/文件/富文本不临时覆盖，改用模拟打字
