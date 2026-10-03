@@ -34,6 +34,7 @@ from PIL import Image, ImageDraw, ImageFont   # 本地改 2026-10-02: warn 模�
 cap_deadline = 0.0          # 本句录音到时长上限的时刻 (time.time()); 0 = 不限. 由 ShortcutTask 设置
 _WARN_RED = (255, 59, 48, 255)
 _READY_GREEN = (52, 199, 89, 255)
+_WAIT_AMBER = (255, 180, 55, 255)
 
 
 def _cap_warn(now: float) -> float:
@@ -61,6 +62,13 @@ def _tint_red(img, w: float):
 def _tint_green(img, w: float):
     """麦克风就绪时整个胶囊短促闪绿（透明度不变）。"""
     out = Image.blend(img, Image.new('RGBA', img.size, _READY_GREEN), 0.72 * w)
+    out.putalpha(img.getchannel('A'))
+    return out
+
+
+def _tint_amber(img, w: float):
+    """麦克风启动中的暖黄呼吸色，与转写扫光和就绪绿光区分。"""
+    out = Image.blend(img, Image.new('RGBA', img.size, _WAIT_AMBER), 0.38 * w)
     out.putalpha(img.getchannel('A'))
     return out
 
@@ -492,10 +500,12 @@ class ToastWindowRecording:
         # 本地改 2026-10-02: warn 模式走 processing 视觉 (扫光动画), 自己叠画 ⚠ + 文字
         # 注意: done 必须传 'done' 给主题, 否则 finished() 永远 False → 胶囊不自动销毁 (2026-10-02 实测)
         self._themed.warning = self._applied_mode == 'warn'
-        theme_mode = {'listening': 'recording', 'waiting': 'processing', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
+        theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
         raw, fresh = _read_mic_level()
-        img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
+        img, a = self._themed.frame(now, _level_target(raw, dt) if fresh and self._applied_mode != 'waiting' else 0.0)
+        if self._applied_mode == 'waiting':
+            img = _tint_amber(img, 0.45 + 0.55 * (0.5 + 0.5 * math.sin(now * 5.2)))
         w = _cap_warn(time.time()) if self._applied_mode == 'listening' else 0.0
         if w > 0.01:
             img = _tint_red(img, w)   # ponytail: 只做了主题胶囊, 经典样式 (dark/light/auto) 不闪
@@ -562,7 +572,7 @@ class ToastWindowRecording:
         self._proc_t0 = time.perf_counter()
 
     def _tick_classic(self) -> None:
-        processing = self._applied_mode in ('processing', 'waiting')
+        processing = self._applied_mode == 'processing'
 
         if processing:
             self._proc_frames += 1   # 驱动扫光动画
@@ -627,6 +637,11 @@ class ToastWindowRecording:
                 x = self._wave_x0 + (i + 0.5) * step
                 prims.append((x, self._mid_y - half, x, self._mid_y + half, _BAR_W,
                               self._palette_at(i / (_BAR_COUNT - 1) * _WAVE_SPAN - self._frame * _WAVE_FLOW)))
+
+        if self._applied_mode == 'waiting':
+            pulse = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(time.perf_counter() * 5.2))
+            prims = [(x1, y1, x2, y2, w, self._lerp(c, '#ffb437', 0.75 * pulse))
+                     for x1, y1, x2, y2, w, c in prims]
 
         ready_left = self._ready_flash_until - time.perf_counter()
         if ready_left > 0:

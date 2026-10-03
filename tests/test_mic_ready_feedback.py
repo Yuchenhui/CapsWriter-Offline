@@ -31,3 +31,5 @@ def test_toast_supports_waiting_and_ready_messages():
     assert "new_text == 'ready'" in source
     assert "self._mode = 'listening'" in source
     assert '_tint_green' in source
+    assert "'waiting': 'recording'" in source
+    assert '_tint_amber' in source
