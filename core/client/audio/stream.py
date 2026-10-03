@@ -79,6 +79,14 @@ class AudioStreamManager:
         if not self.state.recording:
             return
 
+        # 闲置释放后重开麦克风会花约 0.5s。只有收到首个真实音频块才算就绪，
+        # 让胶囊由“启动中”切到绿色短闪，避免用户提前开口被吞句首。
+        try:
+            from core.client.ui.recording_toast import ready_active
+            ready_active()
+        except Exception:
+            pass
+
         import asyncio
 
         # 只读采样：算一下本块的 RMS 电平，喂给悬浮胶囊做真实波形（不影响录音/识别）

@@ -105,6 +105,7 @@ class ShortcutTask:
             _path = f'error {e!r}'
             logger.debug(f"激活鼠标下窗口出错: {e}")
         key_trace.push('step', f'切前台 {_path} {(time.perf_counter() - _t0) * 1000:.1f}ms RAlt {_a0}->{key_trace.ralt()}')
+        mic_ready = self.app.stream._running and not self.app.stream.is_stale(1.0)
         idle_release.wake(self.app)   # 麦克风若已闲置释放, 后台重新打开 (约 0.5s)
 
         # 记录开始时间
@@ -126,7 +127,7 @@ class ShortcutTask:
 
         # 打印动画：正在录音
         self._status.start()
-        self._rec_toast.start()
+        self._rec_toast.start(waiting=not mic_ready)
 
         # 音箱静音: 等过了短按阈值再静, 否则每次短按右 Alt 声音都会断一下
         if getattr(_Cfg, 'mute_speaker_while_recording', False):

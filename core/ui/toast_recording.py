@@ -33,6 +33,7 @@ from PIL import Image, ImageDraw, ImageFont   # 本地改 2026-10-02: warn 模�
 
 cap_deadline = 0.0          # 本句录音到时长上限的时刻 (time.time()); 0 = 不限. 由 ShortcutTask 设置
 _WARN_RED = (255, 59, 48, 255)
+_READY_GREEN = (52, 199, 89, 255)
 
 
 def _cap_warn(now: float) -> float:
@@ -53,6 +54,13 @@ def _tint_red(img, w: float):
     """胶囊整体往红色混 (透明度不变)"""
     from PIL import Image
     out = Image.blend(img, Image.new('RGBA', img.size, _WARN_RED), 0.65 * w)
+    out.putalpha(img.getchannel('A'))
+    return out
+
+
+def _tint_green(img, w: float):
+    """麦克风就绪时整个胶囊短促闪绿（透明度不变）。"""
+    out = Image.blend(img, Image.new('RGBA', img.size, _READY_GREEN), 0.72 * w)
     out.putalpha(img.getchannel('A'))
     return out
 
@@ -302,6 +310,7 @@ class ToastWindowRecording:
         self._warn_active = False             # 本地改 2026-10-02: 警示态激活标记, 绘制时叠画 ⚠ + 文字
         self._warn_log_emitted = False        # 本地改 2026-10-02: 首次成功叠画打 INFO (避免每帧刷屏)
         self._warn_err_emitted = False        # 本地改 2026-10-02: 首次失败打 WARN, 之后静默
+        self._ready_flash_until = 0.0          # 收到首个音频块后的绿色就绪闪光
         from core.ui.layered_renderer import theme
         self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
         self._stop_callback = stop_callback   # 超时自毁时通知持有者回收注册状态
@@ -462,6 +471,10 @@ class ToastWindowRecording:
                 if self._themed is None:     # 经典样式没有完成动画: 直接关
                     self._on_proc_timeout()
                     return
+            elif self._mode == 'waiting':
+                self._enter_waiting()
+            elif self._mode == 'listening':
+                pass
             else:
                 self._enter_processing()
         if self._themed is not None:
@@ -479,13 +492,16 @@ class ToastWindowRecording:
         # 本地改 2026-10-02: warn 模式走 processing 视觉 (扫光动画), 自己叠画 ⚠ + 文字
         # 注意: done 必须传 'done' 给主题, 否则 finished() 永远 False → 胶囊不自动销毁 (2026-10-02 实测)
         self._themed.warning = self._applied_mode == 'warn'
-        theme_mode = {'listening': 'recording', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
+        theme_mode = {'listening': 'recording', 'waiting': 'processing', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh else 0.0)
         w = _cap_warn(time.time()) if self._applied_mode == 'listening' else 0.0
         if w > 0.01:
             img = _tint_red(img, w)   # ponytail: 只做了主题胶囊, 经典样式 (dark/light/auto) 不闪
+        ready_left = self._ready_flash_until - now
+        if ready_left > 0:
+            img = _tint_green(img, math.sin(math.pi * min(1.0, ready_left / 0.38)))
         self._ulw.blit(img, a)
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
@@ -539,8 +555,14 @@ class ToastWindowRecording:
         # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
         self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
 
+    def _enter_waiting(self) -> None:
+        """麦克风冷启动期：使用扫光表示正在准备，不安排转写超时。"""
+        self._text = ''
+        self._proc_frames = 0
+        self._proc_t0 = time.perf_counter()
+
     def _tick_classic(self) -> None:
-        processing = (self._applied_mode == 'processing')
+        processing = self._applied_mode in ('processing', 'waiting')
 
         if processing:
             self._proc_frames += 1   # 驱动扫光动画
@@ -606,6 +628,12 @@ class ToastWindowRecording:
                 prims.append((x, self._mid_y - half, x, self._mid_y + half, _BAR_W,
                               self._palette_at(i / (_BAR_COUNT - 1) * _WAVE_SPAN - self._frame * _WAVE_FLOW)))
 
+        ready_left = self._ready_flash_until - time.perf_counter()
+        if ready_left > 0:
+            strength = math.sin(math.pi * min(1.0, ready_left / 0.38))
+            prims = [(x1, y1, x2, y2, w, self._lerp(c, '#34c759', strength))
+                     for x1, y1, x2, y2, w, c in prims]
+
         if self._ulw is not None:
             self._ulw.render(prims, self._alpha)
         else:
@@ -670,6 +698,15 @@ class ToastWindowRecording:
             if self._mode == 'warn':
                 return
             self._preview = new_text[8:]
+            return
+        if new_text == 'waiting':
+            self._mode = 'waiting'
+            return
+        if new_text == 'ready':
+            if self._mode == 'waiting':
+                self._ready_flash_until = time.perf_counter() + 0.38
+                self._mode = 'listening'
+                logger.info('麦克风已就绪，胶囊闪绿')
             return
         if new_text == 'done':            # 本地改 2026-09-24: 文字已上屏 -> 完成态 (主题胶囊播对勾, 经典样式直接关)
             self._mode = 'done'

@@ -57,6 +57,14 @@ def preview_active(text: str) -> None:
         inst.preview(text)
 
 
+def ready_active() -> None:
+    """首个音频块到达 -> 通知当前胶囊麦克风已真正就绪。"""
+    with _active_lock:
+        inst = _active
+    if inst is not None:
+        inst.ready()
+
+
 def warn_active(text: str) -> None:   # 本地改 2026-10-02: 模块级入口, 让 result_processor 可调
     """切到警示态: 复用完成态弹出动画 + 在胶囊中央画 ⚠ + text. 无活动胶囊时 no-op"""
     logger.info(f'[toast.warn] warn_active 被调, text={text!r}, 活动实例={_active is not None}')   # 本地改 2026-10-02: 全链路 log
@@ -92,7 +100,7 @@ class RecordingToast:
         self._msg_id: Optional[str] = None
         self._processing = False
 
-    def start(self) -> None:
+    def start(self, waiting: bool = False) -> None:
         """开始显示悬浮提示（先关掉可能残留的上一个胶囊）"""
         if not Config.show_recording_toast:
             return
@@ -117,6 +125,8 @@ class RecordingToast:
             self._msg_id = self._manager.add_message(msg)
             self._processing = False
             _register(self)
+            if waiting:
+                self._manager.update_toast(self._msg_id, 'waiting')
             logger.debug('录音悬浮提示已显示')
         except Exception as e:
             logger.error(f'显示录音悬浮提示失败: {e}', exc_info=True)
@@ -151,6 +161,15 @@ class RecordingToast:
             self._manager.update_toast(self._msg_id, 'preview:' + text)
         except Exception as e:
             logger.debug(f'更新实时气泡失败: {e}')
+
+    def ready(self) -> None:
+        """麦克风收到首个音频块：切回录音态并闪一次绿光。"""
+        if self._msg_id is None or self._manager is None:
+            return
+        try:
+            self._manager.update_toast(self._msg_id, 'ready')
+        except Exception as e:
+            logger.debug(f'切换麦克风就绪状态失败: {e}')
 
     def done(self) -> None:
         """切到完成态: 窗口自己播完动画后销毁 (经 stop_callback 回收注册). 期间按下一句会被 start() 直接关掉"""
