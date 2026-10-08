@@ -18,3 +18,11 @@ def test_recorded_noise_sample_below_ten_percent_is_rejected():
     assert 'speech_ratio' in vad_reasons(
         {'speech_sec': 0.29, 'ratio': 0.091}, 0.25, 0.10
     )
+
+
+def test_default_threshold_is_007():   # 本地改 2026-10-08: 阈值由 0.10 下调到 0.07, 放过 ratio 0.072-0.099 的边缘短句
+    cfg_path = Path(__file__).resolve().parents[1] / 'config_client.py'
+    spec = importlib.util.spec_from_file_location('_capswriter_cfg', cfg_path)
+    cfg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cfg)
+    assert cfg.ClientConfig.vad_max_speech_ratio == 0.07
