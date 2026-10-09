@@ -49,6 +49,10 @@ def set_structure(on: bool) -> bool:
     return _set('polish_structure', bool(on), '结构化整理')
 
 
+def set_vad(on: bool) -> bool:
+    return _set('vad_enable', bool(on), 'VAD 语音活动检测')
+
+
 def set_local_model(base_dir, key: str) -> bool:
     from core.client import server_launcher
     try:

@@ -4,6 +4,8 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from core.client.settings.palette import mix
+
 FONT = 'Microsoft YaHei UI'
 
 
@@ -82,7 +84,9 @@ def heading(parent, pal, text: str, sub: str = ''):
 
 
 def section(parent, pal, text: str, bg=None):
-    return tk.Label(parent, text=text, font=font(10, True), bg=bg or pal.bg, fg=pal.muted, anchor='w')
+    # 2026-10-09: 由 pal.muted 提亮到 mix(fg, bg, 0.2) —— 区块小标题原来比正文更小更淡, 层次倒置
+    return tk.Label(parent, text=text, font=font(10, True), bg=bg or pal.bg,
+                    fg=mix(pal.fg, pal.bg, 0.2), anchor='w')
 
 
 class Choice(tk.Frame):
@@ -165,6 +169,19 @@ class Toggle(tk.Label):
 
     def _draw(self):
         self.configure(image=toggle_image(self.pal, self.value, self.bg, self.enabled))
+
+
+class ToggleRow(tk.Frame):
+    """开关行: 第一行标题 + 右侧开关, 第二行灰色小字说明 (2026-10-09: 统一底部开关的排版, 避免长文案换行/不齐). on_change(bool)"""
+
+    def __init__(self, parent, pal, title: str, sub: str = '', value=False, on_change=None):
+        super().__init__(parent, bg=pal.bg)
+        head = tk.Frame(self, bg=pal.bg)
+        head.pack(fill='x')
+        tk.Label(head, text=title, font=font(11), bg=pal.bg, fg=pal.fg).pack(side='left')
+        Toggle(head, pal, value, on_change, bg=pal.bg).pack(side='right')
+        if sub:
+            tk.Label(self, text=sub, font=font(9), bg=pal.bg, fg=pal.muted, anchor='w').pack(fill='x', pady=(3, 0))
 
 
 class Segmented(tk.Frame):

@@ -1,7 +1,7 @@
 # coding: utf-8
 import tkinter as tk
 
-from core.client.settings.widgets import ChoiceGroup, Toggle, heading, section, font
+from core.client.settings.widgets import ChoiceGroup, ToggleRow, heading, section
 
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
@@ -96,20 +96,13 @@ def build(parent, pal, ctx):
 
     section(f, pal, '识别后整理').pack(anchor='w', pady=(26, 8))
     polish_items = [{'key': k, 'title': t, 'detail': d} for k, t, d in POLISH]
-    row = tk.Frame(f, bg=pal.bg)
-    label = tk.Label(row, text='结构化整理：说多件事时编号、分行', font=font(11), bg=pal.bg)
-    label.pack(side='left')
-    tg = Toggle(row, pal, bool(st.get('polish_structure')), lambda v: ctx.do('set_structure', v), bg=pal.bg)
-    tg.pack(side='right')
-
-    def gray(polish: str):                 # 整理关着时结构化不起作用: 置灰, 点不动
-        tg.set_enabled(bool(polish))
-        label.configure(fg=pal.fg if polish else pal.muted)
 
     def pick_polish(k):
         ctx.do('set_polish', k)
-        gray(k)
     ChoiceGroup(f, pal, polish_items, st.get('polish', ''), pick_polish).pack(fill='x')
-    row.pack(fill='x', pady=(12, 0))
-    gray(st.get('polish', ''))
+    ToggleRow(f, pal, '结构化整理', '说多件事时编号、分行', bool(st.get('polish_structure')),
+              lambda v: ctx.do('set_structure', v)).pack(fill='x', pady=(12, 0))
+
+    ToggleRow(f, pal, '语音活动检测 (VAD)', '过滤敲桌/键盘等非语音噪声', bool(st.get('vad_enable', True)),
+              lambda v: ctx.do('set_vad', v)).pack(fill='x', pady=(22, 0))
     return f

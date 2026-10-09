@@ -30,7 +30,7 @@ class Context:
         from config_client import ClientConfig as C
         s = {'asr_engine': getattr(C, 'asr_engine', 'local'), 'polish': getattr(C, 'polish', ''),
              'polish_structure': getattr(C, 'polish_structure', False), 'capsule_theme': getattr(C, 'capsule_theme', 'auto'),
-             'asr_fallback': list(getattr(C, 'asr_fallback', []) or [])}
+             'asr_fallback': list(getattr(C, 'asr_fallback', []) or []), 'vad_enable': getattr(C, 'vad_enable', True)}
         if self.readonly:                 # 预览是独立进程, 内存里的 Config 不是客户端的, 以 user_state.json 为准
             s.update(self._json('user_state.json'))
             s.update(self._preview)
