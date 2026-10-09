@@ -258,7 +258,7 @@ class AudioRecorder:
                         asyncio.create_task(self._send_message(message))
 
                     # 本地改 2026-10-03: Silero VAD —— 敲桌/键盘声是真实物理声音, SNR 达标拦不住;
-                    # VAD 按语音概率区分人声与非语音, 非语音整句丢弃 (docs/2026-10-03-no-voice-output-terms.md 待解决项).
+                    # VAD 按语音概率区分人声与非语音, 非语音整句丢弃 (2026-10-03 引入, 解决敲桌/键盘声被识别成字).
                     # 位置注意: 必须在上面缓存补发之后, 否则短句 (全程在 _cache 里) 完全绕过 VAD
                     if Config.vad_enable and self._vad_buf:
                         from core.client.audio import vad as _vad_mod

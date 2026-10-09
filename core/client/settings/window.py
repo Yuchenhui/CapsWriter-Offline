@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-设置窗口 (本地改 2026-09-25, 设计: docs/specs/2026-09-25-settings-window-design.md)
+设置窗口 (本地改 2026-09-25)
 
 左侧导航 + 右侧可滚动内容; 配色跟随胶囊主题; Win11 标题栏跟随深浅色. 同一时刻只有一个窗口.
 预览 (不接入客户端, 不改任何设置): python -m core.client.settings.window --preview [--shots 目录]
