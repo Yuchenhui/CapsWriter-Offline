@@ -1,7 +1,7 @@
 # coding: utf-8
 import tkinter as tk
 
-from core.client.settings.widgets import ChoiceGroup, ToggleRow, heading, section
+from core.client.settings.widgets import Button, Card, ChoiceGroup, ToggleRow, font, heading, section
 
 TITLE = '识别引擎'
 # 单价与速度 (2026-09-25 实测 / 官方价): 见 core/tools/asr_usage.PRICES
@@ -103,6 +103,69 @@ def build(parent, pal, ctx):
     ToggleRow(f, pal, '结构化整理', '说多件事时编号、分行', bool(st.get('polish_structure')),
               lambda v: ctx.do('set_structure', v)).pack(fill='x', pady=(12, 0))
 
-    ToggleRow(f, pal, '语音活动检测 (VAD)', '过滤敲桌/键盘等非语音噪声', bool(st.get('vad_enable', True)),
+    ToggleRow(f, pal, '语音活动检测 (VAD)', '过滤敲桌/键盘等语音噪声', bool(st.get('vad_enable', True)),
               lambda v: ctx.do('set_vad', v)).pack(fill='x', pady=(22, 0))
+
+    section(f, pal, '连通性测试').pack(anchor='w', pady=(26, 8))
+    _probe_section(f, pal)
     return f
+
+
+def _probe_section(f, pal):
+    """连通性测试 (2026-10-12): 每个云端引擎一行, 按钮向每家发一次极短的真实请求, 行右侧就地显示结果.
+    订阅制引擎 (如阶跃 Step Plan) 没有余额接口, 只有真发请求才知道额度是否耗尽, 这正是本功能的目的."""
+    import queue
+    import threading
+    from core.client.audio import cloud_asr
+    box = Card(f, pal)
+    box.pack(fill='x')
+    body = box.body
+    tk.Label(body, text='向每家云端发一次极短的真实请求（约 0.5 秒音频）。订阅制引擎（如阶跃 Step Plan）没有余额接口，'
+                        '只能这样测出额度是否耗尽；按量引擎测一次约 0.00002 元。', font=font(9), bg=pal.surface,
+             fg=pal.muted, wraplength=560, justify='left').pack(anchor='w', pady=(0, 10))
+    rows = {}
+    for key, (name, kind, _, _) in cloud_asr.ENGINES.items():
+        if kind == 'local':
+            continue
+        row = tk.Frame(body, bg=pal.surface)
+        row.pack(fill='x', pady=2)
+        tk.Label(row, text=name, font=font(10), bg=pal.surface, fg=pal.fg, anchor='w').pack(side='left')
+        lab = tk.Label(row, text='未测试', font=font(10), bg=pal.surface, fg=pal.muted)
+        lab.pack(side='right')
+        rows[key] = lab
+
+    results = queue.Queue()          # 测试在后台线程跑, 结果经队列回到 Tk 线程刷新 (跨线程不直接碰控件)
+
+    def paint():
+        try:
+            while True:
+                key, res = results.get_nowait()
+                lab = rows.get(key)
+                if lab is None or not lab.winfo_exists():
+                    continue
+                if res['ok']:
+                    lab.configure(text=f'✓ 正常 · {res["ms"]}ms', fg=pal.accent)
+                else:
+                    what = cloud_asr._HINTS.get(res['kind'], cloud_asr._HINTS['error'])[0]
+                    extra = f'（{res["detail"]}）' if res['kind'] == 'error' and res['detail'] else ''
+                    lab.configure(text=f'✗ {what}{extra}', fg=pal.danger)
+        except queue.Empty:
+            pass
+        if f.winfo_exists():
+            f.after(120, paint)
+
+    def one(key):
+        try:
+            res = cloud_asr.probe(key)
+        except Exception as e:                       # probe 自己兜异常, 这层只为保险
+            res = {'ok': False, 'kind': 'error', 'detail': f'{type(e).__name__}: {e}'[:80], 'ms': 0}
+        results.put((key, res))
+
+    def test():
+        for lab in rows.values():
+            lab.configure(text='测试中…', fg=pal.muted)
+        for key in rows:                             # 每家一个线程 (打的是不同主机), 出结果各自刷新
+            threading.Thread(target=one, args=(key,), daemon=True, name=f'asr-probe-{key}').start()
+
+    Button(body, pal, '测试全部', test, primary=True).pack(anchor='w', pady=(10, 0))
+    f.after(120, paint)

@@ -87,7 +87,8 @@ _HINTS = {'balance': ('余额不足', '去控制台充值，或在设置里换�
 def classify(code, text: str = '') -> str:
     """HTTP 状态码 / 厂商错误码 + 错误文字 -> 错误类别 (_HINTS 的键)"""
     t = f'{code} {text}'.lower()
-    if any(k in t for k in ('1113', '余额', 'balance', 'insufficient', 'quota', 'arrearage', '欠费')):
+    # 'left credit' = 阶跃 Step Plan 订阅额度用尽时返回 429 {"message":"you have no left credit for step plan"}; 不算限流
+    if any(k in t for k in ('1113', '余额', 'balance', 'insufficient', 'quota', 'arrearage', '欠费', 'left credit')):
         return 'balance'
     if code in (401, 403) or any(k in t for k in ('not granted', 'invalid api', 'invalidapikey', 'unauthorized', 'access denied', '鉴权')):
         return 'auth'
@@ -105,6 +106,9 @@ def classify_exc(e: BaseException) -> tuple:
         except Exception:
             body = ''
         return classify(e.code, body), f'HTTP {e.code} {body}'
+    status = getattr(getattr(e, 'response', None), 'status_code', None)   # websockets 握手被拒 (InvalidStatus)
+    if status:
+        return classify(status, f'{type(e).__name__}: {e}'), f'HTTP {status} {e}'[:200]
     if isinstance(e, (TimeoutError, asyncio.TimeoutError)):
         return 'timeout', type(e).__name__
     if isinstance(e, (ConnectionError, OSError)):
@@ -793,6 +797,86 @@ def _wav(pcm: np.ndarray) -> bytes:
     with wave.open(buf, 'wb') as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm.tobytes())
     return buf.getvalue()
+
+
+# ---- 连通性测试 (2026-10-12): 向一个引擎发一次极短的真实请求, 判断它此刻是否可用 ----
+class _ProbeFail(Exception):
+    """测试里能直接给出类别 / 详情的失败 (流式的错误帧 / task-failed), 交给 probe 记录"""
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(detail)
+        self.kind, self.detail = kind, detail
+
+
+def _probe_stream(model: str, timeout: float) -> None:
+    """流式 / 豆包引擎的连通性: 只建连 + 发初始请求 + 读首个响应, 不发音频 (不计费).
+    成功返回; 失败抛 _ProbeFail (已知类别) 或原异常 (由 classify_exc 分类)"""
+    async def run():
+        from websockets.asyncio.client import connect
+        if model.startswith('doubao'):
+            from core.tools.polish_providers import env_key
+            nostream = model.endswith('-nostream')
+            async with connect(VolcStream.URL_NOSTREAM if nostream else VolcStream.URL, additional_headers={
+                    'X-Api-Key': env_key('VOLC_ASR_API_KEY'), 'X-Api-Resource-Id': VolcStream.RESOURCE,
+                    'X-Api-Connect-Id': uuid.uuid4().hex}, max_size=2 ** 22) as ws:
+                req = {'user': {'uid': 'capswriter'}, 'audio': {'format': 'pcm', 'rate': 16000, 'bits': 16, 'channel': 1},
+                       'request': {'model_name': 'bigmodel', 'enable_itn': True, 'enable_punc': True,
+                                   'enable_nonstream': not nostream, 'result_type': 'full'}}
+                await ws.send(VolcStream._frame(0b0001, 0, 0b0001, json.dumps(req).encode()))
+                raw = await ws.recv()
+                if isinstance(raw, bytes) and raw[1] >> 4 == 0b1111:      # 错误帧: code(4) + len(4) + msg
+                    import gzip
+                    n = int.from_bytes(raw[8:12], 'big')
+                    msg = raw[12:12 + n]
+                    text = (gzip.decompress(msg) if raw[2] & 0x0F else msg).decode('utf-8', 'replace')
+                    code = int.from_bytes(raw[4:8], 'big')
+                    raise _ProbeFail(classify(code, text), f'{code} {text}'[:120])
+            return
+        async with connect(URL, additional_headers={'Authorization': f'bearer {_dashscope_key()}'}, max_size=2 ** 20) as ws:
+            await ws.send(json.dumps({'header': {'action': 'run-task', 'task_id': uuid.uuid4().hex, 'streaming': 'duplex'},
+                                      'payload': {'task_group': 'audio', 'task': 'asr', 'function': 'recognition',
+                                                  'model': model, 'parameters': {'format': 'pcm', 'sample_rate': 16000},
+                                                  'input': {}}}))
+            async for raw in ws:
+                if isinstance(raw, bytes):
+                    continue
+                ev = json.loads(raw)
+                name = ev.get('header', {}).get('event')
+                if name == 'task-started':                               # 建连 + 鉴权通过
+                    return
+                if name == 'task-failed':
+                    code, msg = ev['header'].get('error_code'), ev['header'].get('error_message')
+                    raise _ProbeFail(classify(code, msg or ''), f'{code} {msg}'[:120])
+    asyncio.run(asyncio.wait_for(run(), timeout))
+
+
+def probe(key: str, timeout: float = 10.0) -> dict:
+    """连通性测试: 向一个引擎发一次极短的真实请求, 判断它此刻是否可用.
+    返回 {'key', 'name', 'ok', 'kind', 'detail', 'ms'}; kind 见 _HINTS ('' = 正常).
+    订阅制引擎 (如阶跃 Step Plan) 没有余额查询接口, 只有真发一次请求才知道额度是否耗尽 —— 这正是本功能的目的.
+    非流式发约 0.5 秒音频 (阶跃 ¥0.15/小时 ≈ 0.00002 元), 流式只握手不发音频 (不计费)."""
+    name, kind, model, env = ENGINES.get(key, (key, 'local', '', ''))
+    r = {'key': key, 'name': name, 'ok': False, 'kind': '', 'detail': '', 'ms': 0}
+    if key not in ENGINES or kind == 'local':
+        return r
+    if not _has_key(env):
+        r.update(kind='nokey', detail=f'缺 {env}')
+        return r
+    t = time.perf_counter()
+    try:
+        if kind == 'stream' or model.startswith('doubao'):
+            _probe_stream(model, timeout)
+        else:
+            wav = _wav(((np.random.default_rng(0).random(8000) - 0.5) * 100).astype(np.int16))   # 0.5 秒低电平噪声
+            BatchASR(model, preconnect=False, step_plan=(key == 'step-plan-batch'))._recognize(wav)
+        r['ok'] = True
+    except _ProbeFail as e:
+        r.update(kind=e.kind, detail=e.detail)
+    except Exception as e:
+        kind2, detail = classify_exc(e)
+        r.update(kind=kind2, detail=detail)
+    r['ms'] = int((time.perf_counter() - t) * 1000)
+    return r
 
 
 if __name__ == '__main__':   # 自检: python -m core.client.audio.cloud_asr <16k 单声道 wav> [引擎 key]  (按真实语速回放, 真调接口)
