@@ -97,6 +97,7 @@
     - [`shortcut/`](core/client/shortcut/) - `ShortcutManager`（pynput）快捷键系统
     - [`output/result_processor.py`](core/client/output/result_processor.py) - `ResultProcessor` 后处理核心
     - [`output/text_output.py`](core/client/output/text_output.py) - `TextOutput` 上屏
+    - [`history.py`](core/client/history.py) - 输出历史 (每句最终上屏文本追加 `history.jsonl`, 设置窗口「历史」页查看/复制)
     - [`hotword/`](core/client/hotword/) - 热词系统（Phoneme RAG + Rule + Rectification）
     - [`llm/`](core/client/llm/) - LLM 子系统（角色加载、上下文、API 调用）
     - [`manager/`](core/client/manager/) - `MicRunner` / `FileRunner` / `TrayManager`

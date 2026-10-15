@@ -182,11 +182,19 @@ class ClientState:
     def set_output_text(self, text: str) -> None:
         """
         设置最近一次输出文本
-        
+
         Args:
             text: 输出文本内容
         """
         self.last_output_text = text
+        # 本地新增 2026-10-15: 所有输出路径 (直输/LLM透传/LLM润色/toast) 都在这里收口,
+        # 记录输出历史, 供设置窗口「历史」页复制找回; 失败不影响上屏
+        try:
+            if self.app is not None and (text or '').strip():
+                from core.client import history
+                history.record(self.app.base_dir, text)
+        except Exception as e:
+            logger.debug(f'记录输出历史失败: {e}')
 
 
 
