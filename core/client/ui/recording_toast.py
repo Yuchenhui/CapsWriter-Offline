@@ -77,9 +77,9 @@ def warn_active(text: str) -> None:   # 本地改 2026-10-02: 模块级入口, �
 
 
 def hint_capsule(text: str, ok: bool = True) -> None:   # 本地改 2026-10-15: 托盘「复制最新一句」的反馈
-    """弹一个一次性胶囊提示 (新建独立胶囊, 不动录音胶囊的注册状态):
+    """弹一个一次性胶囊提示 (新建独立胶囊, 不动录音胶囊的注册状态), 固定屏幕底部居中、任务栏上方:
     ok=True  -> hint 协议: 主题胶囊播绿色对勾完成动画后自毁, 经典样式画 ✓ + text (1.8s 兜底);
-    ok=False -> 复用 warn 协议: 琥珀 ⚠ + text (3s 自毁), 用于「还没有历史记录」。
+    ok=False -> bwarn 协议: 琥珀 ⚠ + text (3s 自毁), 用于「还没有历史记录」。
     用户关掉录音胶囊 (show_recording_toast=False) 时退化为小号 label toast。出错只记日志。"""
     try:
         if not Config.show_recording_toast:
@@ -91,7 +91,7 @@ def hint_capsule(text: str, ok: bool = True) -> None:   # 本地改 2026-10-15: 
         # text 传给胶囊构造: 经典样式按它定胶囊宽度; 主题胶囊固定尺寸, 忽略
         msg = ToastMessage(text=text, window_type='recording', streaming=True)
         mid = mgr.add_message(msg)
-        mgr.update_toast(mid, ('hint:' if ok else 'warn:') + text)   # 窗口未建好会自动暂存补投
+        mgr.update_toast(mid, ('hint:' if ok else 'bwarn:') + text)   # 窗口未建好会自动暂存补投
     except Exception as e:
         logger.warning(f'胶囊提示失败: {e}')
 

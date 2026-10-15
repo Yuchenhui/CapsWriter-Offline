@@ -320,6 +320,7 @@ class ToastWindowRecording:
         self._warn_err_emitted = False        # 本地改 2026-10-02: 首次失败打 WARN, 之后静默
         self._hint_text = ''                  # 本地改 2026-10-15: 成功提示态文字 (托盘复制反馈)
         self._hint_active = False             # 本地改 2026-10-15: 成功提示态激活标记
+        self._pin_bottom = False              # 本地改 2026-10-15: hint/bwarn 固定屏幕底部居中, 不跟鼠标
         self._ready_flash_until = 0.0          # 收到首个音频块后的绿色就绪闪光
         from core.ui.layered_renderer import theme
         self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
@@ -487,6 +488,8 @@ class ToastWindowRecording:
                 pass
             else:
                 self._enter_processing()
+                if self._pin_bottom:     # 本地改 2026-10-15: hint/bwarn 固定屏幕底部居中 (任务栏上方)
+                    self._move_bottom_center()
         if self._themed is not None:
             self._themed_frame()
             return
@@ -560,11 +563,33 @@ class ToastWindowRecording:
                 failed.destroy()
             logger.warning(f'实时识别气泡出错, 本句不再显示: {e}')
 
+    def _move_bottom_center(self) -> None:
+        """本地改 2026-10-15: 把胶囊固定到鼠标所在屏工作区的底部居中 (任务栏上方), 不跟鼠标.
+        分层渲染器每帧用 self._ulw.pos 钉住窗口位置 (UpdateLayeredWindow), 必须一起改"""
+        try:
+            from ctypes import wintypes
+            margin = _bottom_margin()
+            info = _cursor_monitor_workarea()
+            if info is not None:
+                _, _, left, _top, right, bottom = info
+            else:
+                left, right = 0, self.window.winfo_screenwidth()
+                bottom = self.window.winfo_screenheight()
+            x = int(left + (right - left - self._w) / 2)
+            y = int(bottom - self._h - margin - 24)   # 工作区底边已刨掉任务栏, 再往上留 24px
+            self._geom = (x, y)
+            self.window.geometry(f'+{x}+{y}')
+            if self._ulw is not None:
+                m = self._ulw.M
+                self._ulw.pos = wintypes.POINT(x - m, y - m)
+            logger.debug(f'提示胶囊定位到底部居中: ({x}, {y})')
+        except Exception as e:
+            logger.debug(f'提示胶囊定位失败: {e}')
+
     def _enter_processing(self) -> None:
         self._text = _PROC_LABEL
         self._proc_frames = 0
-        self._proc_t0 = time.perf_counter()
-        # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
+        self._proc_t0 = time.perf_counter()        # 本地改: 转写中沿用同一排声条 (行波), 布局不变, 无需重排
         if self._ulw is None:
             self.canvas.delete('all')
             self._draw_static()
@@ -745,9 +770,20 @@ class ToastWindowRecording:
         if new_text.startswith('hint:'):   # 本地改 2026-10-15: 成功提示 (托盘复制最新一句), 主题胶囊播绿对勾完成动画, 经典样式画 ✓ + 文字, 1.8s 兜底自毁
             self._hint_text = new_text[5:]
             self._hint_active = True
+            self._pin_bottom = True        # 固定屏幕底部居中 (任务栏上方), 不跟鼠标
             self._proc_timeout_ms = 1800   # 先超时后模式 (同 warn 的顺序约定); 主题胶囊动画播完会提前自毁, 这里只是兜底
             self._mode = 'hint'
             logger.info(f'[toast.hint] 收到 hint, text={self._hint_text!r}')
+            return
+        if new_text.startswith('bwarn:'):   # 本地改 2026-10-15: 底部居中版 warn (托盘空历史), 视觉同 warn, 只是不跟鼠标
+            self._warn_text = new_text[6:]
+            self._warn_active = True
+            self._warn_log_emitted = False
+            self._warn_err_emitted = False
+            self._warn_t0 = None
+            self._pin_bottom = True
+            self._proc_timeout_ms = 3000
+            self._mode = 'warn'
             return
         try:
             self._proc_timeout_ms = max(_PROC_TIMEOUT_MS, int(new_text.split(':', 1)[1]))
