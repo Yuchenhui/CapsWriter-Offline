@@ -318,6 +318,8 @@ class ToastWindowRecording:
         self._warn_active = False             # 本地改 2026-10-02: 警示态激活标记, 绘制时叠画 ⚠ + 文字
         self._warn_log_emitted = False        # 本地改 2026-10-02: 首次成功叠画打 INFO (避免每帧刷屏)
         self._warn_err_emitted = False        # 本地改 2026-10-02: 首次失败打 WARN, 之后静默
+        self._hint_text = ''                  # 本地改 2026-10-15: 成功提示态文字 (托盘复制反馈)
+        self._hint_active = False             # 本地改 2026-10-15: 成功提示态激活标记
         self._ready_flash_until = 0.0          # 收到首个音频块后的绿色就绪闪光
         from core.ui.layered_renderer import theme
         self._dot_dim = theme()['dot']        # 转写中暗点颜色, 跟随系统深浅色主题
@@ -492,6 +494,9 @@ class ToastWindowRecording:
         # 本地改 2026-10-02: 经典样式下, 警示态在 canvas 上画 ⚠ + 文字
         if self._applied_mode == 'warn' and self._warn_active:
             self._draw_warn_classic()
+        # 本地改 2026-10-15: 经典样式下, 成功提示态画 ✓ + 文字
+        if self._applied_mode == 'hint' and self._hint_active:
+            self._draw_hint_classic()
 
     def _themed_frame(self) -> None:
         now = time.perf_counter()
@@ -500,7 +505,8 @@ class ToastWindowRecording:
         # 本地改 2026-10-02: warn 模式走 processing 视觉 (扫光动画), 自己叠画 ⚠ + 文字
         # 注意: done 必须传 'done' 给主题, 否则 finished() 永远 False → 胶囊不自动销毁 (2026-10-02 实测)
         self._themed.warning = self._applied_mode == 'warn'
-        theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done'}.get(self._applied_mode, 'processing')
+        # hint 复用主题的 done 绿对勾弹出动画, 播完 finished() 自毁 (2026-10-15)
+        theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done', 'hint': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh and self._applied_mode != 'waiting' else 0.0)
@@ -531,7 +537,7 @@ class ToastWindowRecording:
         self._bubble_t = now
         if self._bubble_off:
             return
-        if self._applied_mode == 'warn':
+        if self._applied_mode in ('warn', 'hint'):   # 本地改 2026-10-15: hint 同样不冒气泡
             if self._bubble is not None:
                 self._bubble.destroy()
                 self._bubble = None
@@ -736,6 +742,13 @@ class ToastWindowRecording:
             self._mode = 'warn'
             logger.info(f'[toast.warn] update_text 收到 warn, text={self._warn_text!r}, 3 秒后自毁')
             return
+        if new_text.startswith('hint:'):   # 本地改 2026-10-15: 成功提示 (托盘复制最新一句), 主题胶囊播绿对勾完成动画, 经典样式画 ✓ + 文字, 1.8s 兜底自毁
+            self._hint_text = new_text[5:]
+            self._hint_active = True
+            self._proc_timeout_ms = 1800   # 先超时后模式 (同 warn 的顺序约定); 主题胶囊动画播完会提前自毁, 这里只是兜底
+            self._mode = 'hint'
+            logger.info(f'[toast.hint] 收到 hint, text={self._hint_text!r}')
+            return
         try:
             self._proc_timeout_ms = max(_PROC_TIMEOUT_MS, int(new_text.split(':', 1)[1]))
         except (IndexError, ValueError):
@@ -839,3 +852,23 @@ class ToastWindowRecording:
             self.canvas.create_text(cx + 4, cy, text=text, font=f_text, fill=_TEXT_FG, tags='warn', anchor='w')
         except Exception as e:   # 本地改 2026-10-02: 同上, 不能拖死 _tick
             logger.debug(f'经典样式 warn 绘制出错: {e}')
+
+    def _draw_hint_classic(self) -> None:
+        """经典样式 canvas 上画 ✓ + 提示文字 (本地改 2026-10-15, 跟 _draw_warn_classic 同套路)"""
+        try:
+            self.canvas.delete('hint')
+            from tkinter import font as tkfont
+            ff = self._font_family or 'TkDefaultFont'
+            try:
+                f_icon = tkfont.Font(family=ff, size=14, weight='bold')
+            except Exception:
+                f_icon = tkfont.Font(size=14, weight='bold')
+            try:
+                f_text = tkfont.Font(family=ff, size=12)
+            except Exception:
+                f_text = tkfont.Font(size=12)
+            cx, cy = self._w / 2, self._h / 2
+            self.canvas.create_text(cx - 4, cy, text='✓', font=f_icon, fill='#3fb950', tags='hint', anchor='e')
+            self.canvas.create_text(cx + 4, cy, text=self._hint_text, font=f_text, fill=_TEXT_FG, tags='hint', anchor='w')
+        except Exception as e:   # 同上, 不能拖死 _tick
+            logger.debug(f'经典样式 hint 绘制出错: {e}')

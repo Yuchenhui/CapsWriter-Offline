@@ -1,10 +1,14 @@
 # coding: utf-8
 """
-托盘 (本地改 2026-09-25): 三行状态 + 「设置…」(默认项, 左键单击图标也打开) + 「退出».
+托盘 (本地改 2026-09-25): 三行状态 + 「复制最新一句」+「设置…」+「退出」.
 所有设置都在设置窗口 (core/client/settings) 里改; 原来的各设置子菜单已移除.
+
+本地改 2026-10-15: 图标左键快捷操作 —— 单击复制最新一句历史 (toast 提示), 双击打开设置窗口.
+pystray 对单击/双击都只触发默认菜单项, 这里按 GetDoubleClickTime 自行判别.
 """
 import datetime as dt
 import os
+import threading
 
 from . import logger
 from config_client import ClientConfig as Config
@@ -34,6 +38,8 @@ class TrayManager:
 
     def __init__(self, app):
         self.app = app
+        self._click_lock = threading.Lock()
+        self._click_timer = None       # 单击延时计时器; 双击到达时取消
 
     @property
     def state(self):
@@ -50,7 +56,9 @@ class TrayManager:
             return
         icon_path = os.path.join(self.app.base_dir, 'assets', 'icon.ico')
         opts = [((lambda n: (lambda _item: self._status(n)))(n), 'status') for n in range(3)]
-        opts.append(('设置…', self._open_settings, 'default'))
+        opts.append(('左键单击图标＝复制最新一句，双击＝设置', 'status'))
+        opts.append(('复制最新一句', self._on_icon_click, 'default'))
+        opts.append(('设置…', self._open_settings))
         enable_min_to_tray('CapsWriter Client', icon_path, exit_callback=self.app.stop, more_options=opts, restart=False)
         logger.info("托盘图标已启用")
 
@@ -65,6 +73,46 @@ class TrayManager:
     def _open_settings(self):
         from core.client.settings.window import show
         show(self.app)
+
+    @staticmethod
+    def _double_click_time() -> float:
+        """系统双击间隔 (秒) + 余量; 读不到就用 0.55"""
+        try:
+            import ctypes
+            return ctypes.windll.user32.GetDoubleClickTime() / 1000 + 0.05
+        except Exception:
+            return 0.55
+
+    def _on_icon_click(self):
+        """托盘图标左键 (pystray 单击/双击都走到这里): 单击延时复制最新一句, 双击取消复制改开设置"""
+        with self._click_lock:
+            t = self._click_timer
+            if t is not None and t.is_alive():
+                t.cancel()
+                self._click_timer = None
+                self._open_settings()           # 双击
+                return
+            self._click_timer = threading.Timer(self._double_click_time(), self._copy_latest)
+            self._click_timer.daemon = True
+            self._click_timer.start()
+
+    def _copy_latest(self):
+        """复制 history.jsonl 里最新一句并弹胶囊提示; 失败只记日志"""
+        try:
+            from core.client import history
+            from core.client.clipboard import copy_to_clipboard
+            from core.client.ui.recording_toast import hint_capsule
+            entries = history.read_entries(self.app.base_dir, 1)
+            if not entries:
+                hint_capsule('还没有历史记录', ok=False)
+                return
+            text = entries[0]['text']
+            copy_to_clipboard(text)
+            preview = text if len(text) <= 14 else text[:14] + '…'
+            hint_capsule(f'已复制：{preview}')
+            logger.info(f'托盘复制最新一句 ({len(text)} 字)')
+        except Exception as e:
+            logger.warning(f'托盘复制最新一句失败: {e}')
 
     def stop(self):
         """停止托盘图标"""
