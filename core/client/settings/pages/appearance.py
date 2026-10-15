@@ -3,7 +3,7 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from core.client.settings.widgets import heading, font
+from core.client.settings.widgets import ToggleRow, heading, font
 
 TITLE = '外观'
 THEMES = (('obsidian', '墨玉'), ('aurora', '极光'), ('pebble', '微点'), ('frost', '霜白'), ('halo', '光环'),
@@ -74,4 +74,8 @@ def build(parent, pal, ctx):
         on = k == current
         card.configure(highlightbackground=pal.accent if on else pal.border, highlightthickness=2 if on else 1)
         name.configure(fg=pal.accent if on else pal.fg)
+    # 本地改 2026-10-15: 胶囊位置开关 (跟鼠标 / 固定底部居中), 下次录音生效
+    ToggleRow(f, pal, '胶囊跟随鼠标', '关掉后固定在屏幕底部居中、任务栏上方',
+              bool(ctx.state().get('capsule_follow_mouse', True)),
+              lambda v: ctx.do('set_capsule_follow', v)).pack(fill='x', pady=(4, 0))
     return f

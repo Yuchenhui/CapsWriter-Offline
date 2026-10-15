@@ -91,6 +91,15 @@ def _bottom_margin() -> int:
     return _BOTTOM_MARGIN
 
 
+def _follow_mouse() -> bool:
+    """录音胶囊是否跟随鼠标 (本地改 2026-10-15: 外观页开关 capsule_follow_mouse; 关 = 固定屏幕底部居中)"""
+    try:
+        from config_client import ClientConfig
+        return bool(getattr(ClientConfig, 'capsule_follow_mouse', True))
+    except Exception:
+        return True
+
+
 def _level_target(raw: float, dt: float) -> float:
     """麦克风 RMS -> 0~1 波形幅度: 按高出底噪的 dB 映射 (经典样式与主题胶囊共用).
     底噪往下平滑跟随 (时间常数 0.11s, 不低于 -75 dB 防全零块), 往上每秒只涨 0.5 dB; dt = 距上次调用的秒数"""
@@ -359,15 +368,22 @@ class ToastWindowRecording:
 
         # 本地改 2026-09-24: 定位在鼠标指针正下方 (用户要求; Windows Terminal 不报告文字光标位置, 只能跟鼠标),
         # 底下放不下就放到指针上方, 靠屏幕边时收进工作区. 窗口点击穿透, 不挡鼠标
+        # 本地改 2026-10-15: 外观页「胶囊跟随鼠标」关掉时, 固定屏幕底部居中 (任务栏上方)
         margin = _bottom_margin()
         info = _cursor_monitor_workarea()
         self._above, self._workarea = False, None   # 本地改 2026-09-25: 实时识别气泡按胶囊位置摆放 (胶囊在指针上方时气泡也往上)
-        if info is not None:
+        if _follow_mouse() and info is not None:
             cx, cy, left, top, right, bottom = info
             x = int(min(max(cx - self._w // 2, left), right - self._w))
             y = cy + margin if cy + margin + self._h <= bottom else cy - margin - self._h
             y = int(min(max(y, top), bottom - self._h))
             self._above, self._workarea = y < cy, (left, top, right, bottom)
+        elif info is not None:
+            # 固定底部居中: 鼠标所在屏的工作区 (已刨任务栏), 与 _move_bottom_center 同口径
+            _, _, left, top, right, bottom = info
+            x = int(left + (right - left - self._w) / 2)
+            y = int(bottom - self._h - margin - 24)
+            self._workarea = (left, top, right, bottom)
         else:
             # 降级：主屏底部居中
             sw = self.window.winfo_screenwidth()

@@ -28,6 +28,10 @@ def set_theme(key: str) -> bool:
     return key in THEMES and _set('capsule_theme', key, '胶囊主题')
 
 
+def set_capsule_follow(on: bool) -> bool:
+    return _set('capsule_follow_mouse', bool(on), '胶囊跟随鼠标')
+
+
 def set_engine(key: str) -> bool:
     from core.client.audio.cloud_asr import ENGINES
     return key in ENGINES and _set('asr_engine', key, '识别引擎')

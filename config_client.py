@@ -55,6 +55,7 @@ class ClientConfig:
     capsule_px_per_cm = 75.3    # 主题胶囊按这个像素密度下的大小显示 (75.3 = 笔记本屏 2560px/34cm); 其他屏按其 EDID 物理宽度换算, 看着一样大. 0 = 不换算
     capsule_density_strength = 0.2   # 按像素密度缩放的力度: 0 = 不缩 (各屏按像素一样大), 1 = 完全按物理大小 (外接屏 0.57 倍, 太小); 0.4 (0.8 倍) 计时仍看不清 -> 0.2 (约 0.89 倍)
     capsule_theme = 'auto'      # 胶囊主题: 'auto' 跟随系统 / 'light' / 'dark' (托盘「胶囊主题」改, 存 user_state.json)
+    capsule_follow_mouse = True  # 录音胶囊跟随鼠标 (外观页开关; 关 = 固定屏幕底部居中、任务栏上方; 存 user_state.json)
     recording_toast_margin = 24  # 胶囊与鼠标指针的间距 (像素; 2026-09-24 起胶囊跟鼠标, 原为距任务栏 16)
     recording_toast_opacity = 0.9  # 不透明度 0.2~1.0 (本地改: 0.88 -> 0.75 仿玻璃 -> 0.9 用户嫌不明显); 波形灵敏度按底噪自适应, 见 core/ui/toast_recording.py
     
