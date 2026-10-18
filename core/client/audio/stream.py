@@ -54,8 +54,13 @@ class AudioStreamManager:
         self.app = app
         self._channels = 1
         self._running = False  # 标志是否应该运行
-        self._last_cb = 0.0    # 本地改 F5: 最近一次音频回调的时刻 (monotonic), 判断流是否"活着但不送数据"
+        self._last_cb = 0.0    # 本地改 F5: 最近一次音频回调的时刻 (monotonic), 判断流是"活着但不送数据"
         self._lock = threading.RLock()   # 本地改 F5: 结束回调 / 按键唤醒 / 默认设备跟随 可能同时重开
+        self.device_name = ''  # 本地改: 最近一次开流时 PortAudio 报的设备名 = 真正在录的麦克风 (不是 Windows 默认, 两者会差几秒)
+
+    def current_device_name(self) -> str:
+        """当前(或最近一次)实际在录的设备名; 从没成功开过流则空串"""
+        return self.device_name
 
     @property
     def state(self) -> ClientState:
@@ -143,6 +148,7 @@ class AudioStreamManager:
             device = sd.query_devices(kind='input')
             self._channels = min(2, device['max_input_channels'])
             device_name = device.get('name', '未知设备')
+            self.device_name = device_name   # 本地改: 记住真正在录的设备, 校准/设置页按它显示
             console.print(
                 f'使用默认音频设备：[italic]{device_name}，声道数：{self._channels}',
                 end='\n\n'

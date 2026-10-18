@@ -141,8 +141,9 @@ def set_gain(dev_id: str, db: float) -> bool:
 
 
 def calibrate(app) -> bool:
-    from core.client import calibration
-    calibration.start(app)
+    """开校准窗口 (已在校准则取消); 界面与状态在 core/client/ui/calib_window.py"""
+    from core.client.ui import calib_window
+    calib_window.show(app)
     return True
 
 

@@ -56,6 +56,7 @@ m = mod.AudioStreamManager(app)
 # 1. 刚开的流不算失效; 超过 1s 没回调算失效; 来一次回调恢复
 m.start()
 assert m._running and not m.is_stale(1.0)
+assert m.current_device_name() == 'fake', m.current_device_name()   # 本地改: 记住真正在录的设备名
 m._last_cb -= 1.5
 assert m.is_stale(1.0)
 m._audio_callback(None, 0, None, None)   # recording=False 也要记时间

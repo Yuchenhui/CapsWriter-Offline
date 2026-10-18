@@ -7,6 +7,7 @@ CapsWriter 自己由 default_device_watch 在 2 秒内跟过去 —— 只有一
 """
 import ctypes
 import logging
+import re
 from ctypes import wintypes
 
 from .default_device_watch import _GUID, _vcall, _CLSID_MMDeviceEnumerator, _IID_IMMDeviceEnumerator, CLSCTX_ALL
@@ -182,6 +183,36 @@ def sort_devices(devs: list, priority: list) -> list:
         rank = next((i for i, p in enumerate(priority) if p in name), None)
         return (0, rank) if rank is not None else (2 if 'Virtual' in name else 1, 0)
     return sorted(devs, key=key)   # 稳定排序: 同档内保持 Windows 枚举顺序
+
+
+def _norm(name: str) -> str:
+    """设备名归一: 去首尾空白、压掉多余空格、去掉末尾的 " (2)" 这类重名后缀"""
+    n = ' '.join(str(name or '').split())
+    return re.sub(r'\s*\(\d+\)$', '', n)
+
+
+def name_matches(portaudio_name: str, friendly_name: str) -> bool:
+    """PortAudio (WASAPI) 报的设备名与 Windows 端点友好名是不是同一个设备.
+
+    WASAPI 侧的名字会被截断 (实测 'Microphone (ATK N9V2 ULTIMATE dongle)' -> 'Microphone (ATK N9V2 ULTIMATE d'),
+    所以按"截断后互为前缀"判断, 而不是全等.
+    """
+    a, b = _norm(portaudio_name).lower(), _norm(friendly_name).lower()
+    if not a or not b:
+        return False
+    return a.startswith(b) or b.startswith(a)
+
+
+def resolve_capture(portaudio_name: str, devs: list = None) -> tuple:
+    """音频流报的设备名 -> list_capture() 里的 (id, 名称, 是否静音, 增益 dB); 找不到 None"""
+    devs = list_capture() if devs is None else devs
+    hits = [d for d in devs if name_matches(portaudio_name, d[1])]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:                     # 同名端点 (换了驱动 / 残留的旧端点): 取名称最长者, 名字相同则取第一个
+        best = max(hits, key=lambda d: len(_norm(d[1])))
+        return next(d for d in hits if len(_norm(d[1])) == len(_norm(best[1])))
+    return None
 
 
 def set_default(dev_id: str) -> bool:
