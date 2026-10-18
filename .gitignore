@@ -197,3 +197,4 @@ asr_usage.json
 asr_usage.tmp
 history.jsonl
 history.tmp
+calibration_log.jsonl
