@@ -84,7 +84,8 @@ class ClientConfig:
     asr_hedge_sec = 1.0         # 主力这么久还没结果就同时发给下一个候补 (每 10 秒音频再加 0.5 秒). 1s 早于 stepaudio 中位 0.80s, 让候补几乎与主力同时启动 (旧 2s 太迟)
     asr_agc = False             # 本地改 2026-10-27: 小声说话自动增益. 气声说话电平低 (说话 -46 dBFS 量级), 云端引擎返空/只出半句; 开启后按上一句说话电平把本句放大到目标电平再送识别 (云端/本地/VAD 都受益). 设置页「麦克风 → 识别增强」
     asr_agc_target_voice_db = -20.0  # AGC 目标: 说话段电平放大到该 dBFS (健康范围约 -24 ~ -12)
-    asr_agc_max_gain_db = 30.0  # AGC 最大增益 (dB), 防止把底噪/键盘声放到爆音; 输出另有限幅器兜底
+    asr_agc_max_gain_db = 30.0  # AGC 最大增益 (dB), 防止把底噪/键盘声放到爆音; 输出限幅到 [-1,1]
+    asr_agc_gain_db = 0.0       # 本地改 2026-10-27: AGC 当前增益 (dB), 每句按说话电平自动更新并存 user_state, 重启不丢; 手改会被覆盖
     polish_structure = False    # 结构化整理: 多件事排成编号列表并换行 (托盘「二次整理」里勾选; 需要先选服务商)
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
