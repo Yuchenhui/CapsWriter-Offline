@@ -1,14 +1,13 @@
 # coding: utf-8
 """小声说话自动增益 (2026-10-27): 气声说话时整句电平低 (实测说话平均 -46.8 dBFS),
-云端引擎常 VAD 判静音 -> 返空或只出结尾几个字. 本模块按上一句测得的说话电平算一个
-恒定增益, 在送识别前 (云端逐块 feed 与本地 AudioMessage, 均为 16k int16) 把波形放大;
-句内增益恒定避免中途跳变, 句间更新. 录音统计 (本句音量日志/校准) 仍按原始电平记录.
+云端引擎服务端 VAD 按绝对电平切, 只认出零星段 -> 返空或只出几个字 (实测 -53 dBFS 峰值的
+58.6s 录音只回 14 字, 原电平回全文). 本模块按上一句测得的说话电平算一个恒定增益, 在送识别
+前 (云端逐块 feed 与本地 AudioMessage) 把波形放大; 句内增益恒定, 句间更新, 存 state 单例
+(AudioRecorder 每句新建, 实例属性活不过一句). 录音统计/校准仍按原始电平记录.
 """
 from __future__ import annotations
 
 import numpy as np
-
-_CEIL = 31685   # 限幅上限 ≈ -0.3 dBFS, 留余量
 
 
 def gain_linear(voice_db: float | None, target_db: float, max_gain_db: float) -> float:
@@ -20,11 +19,8 @@ def gain_linear(voice_db: float | None, target_db: float, max_gain_db: float) ->
 
 
 def apply(buf: np.ndarray, gain: float) -> np.ndarray:
-    """int16 波形乘增益; 块内峰值超限就整块按峰值回退 (限幅), 防止 int16 回绕爆音. 返回新数组"""
+    """float32 [-1,1] 波形乘增益后限幅回 [-1,1]. 必须保持 float32: 下游 BatchASR.feed 的 np.clip(-1,1)、
+    AudioMessage 的 tobytes、Silero VAD 都按 float32 约定 —— 返回 int16 会被 clip 削成 ±1 方波 (2026-10-27 教训)"""
     if gain <= 1.001 or buf.size == 0:
         return buf
-    out = buf.astype(np.float32) * float(gain)
-    peak = float(np.max(np.abs(out)))
-    if peak > _CEIL:
-        out *= _CEIL / peak
-    return out.astype(np.int16)
+    return np.clip(buf.astype(np.float32) * float(gain), -1.0, 1.0)

@@ -68,7 +68,8 @@ class AudioRecorder:
         self._duration: float = 0.0
         self._cache: list = []
         self._vad_buf: list = []   # 本地改 2026-10-03: 攒 16k 重采样后的音频, 松开后跑 Silero VAD 判人声
-        self._agc_gain = 1.0        # 本地改 2026-10-27: AGC 增益, 句间记忆句内恒定 (audio/agc.py)
+        # 本地改 2026-10-27: AudioRecorder 每句新建, 增益必须存 state 单例才能句间记忆 (audio/agc.py)
+        self._agc_gain = float(getattr(self.state, 'agc_gain', None) or 1.0)
         self._pending_voice = None  # 本句说话电平 (dBFS), 过了静音门限/VAD 才用于更新增益
 
     @property
@@ -318,6 +319,7 @@ class AudioRecorder:
                         if abs(_new - self._agc_gain) > 0.05:
                             logger.info(f"AGC: 本句说话 {self._pending_voice:.1f} dBFS, 下一句增益 {20 * np.log10(_new):+.1f} dB, 任务ID: {self.task_id}")
                         self._agc_gain = _new
+                        self.state.agc_gain = _new   # 本地改 2026-10-27: 存 state, 下一句的新 recorder 实例从这里拿
                     self._pending_voice = None
 
                     # 在线识别结果 (本地改 2026-09-25): 拿到了服务端就跳过本地识别; 超时 / 失败为空, 服务端本地识别兜底
