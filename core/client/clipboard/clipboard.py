@@ -102,6 +102,21 @@ def save_and_restore_clipboard():
             logger.debug("剪贴板已恢复")
 
 
+def _type_fallback(text: str) -> bool:
+    """隐式回退到模拟打字. 多行文本会变成真实 Enter, 在终端里可能提交或执行, 因此拒绝.
+    文本已由调用方的历史记录保留, 这里只提示用户去复制, 不改写也不悄悄删换行."""
+    if '\n' in text or '\r' in text:
+        logger.warning('多行文本不能安全地逐字输入，已停止上屏；完整文本保留在历史记录')
+        try:
+            from core.client.ui.recording_toast import hint_capsule
+            hint_capsule('多行文本未上屏，请到历史记录复制', ok=False)
+        except Exception as e:
+            logger.debug(f'多行文本未上屏提示失败: {e}')
+        return False
+    _keyboard.write(text)
+    return True
+
+
 async def paste_text(text: str, restore_clipboard: bool = True):
     """
     通过模拟 Ctrl+V 粘贴文本
@@ -113,16 +128,16 @@ async def paste_text(text: str, restore_clipboard: bool = True):
     if platform.system() == 'Windows':
         original = plain_text_snapshot() if restore_clipboard else None
         if restore_clipboard and (original is None or clipboard_seq() != original[2]):
-            # 图片、文件、富文本等不能按纯文本还原；直接打字，不碰原剪贴板。
-            _keyboard.write(text)
-            logger.debug('原剪贴板不是纯文本，改用模拟打字')
+            # 图片、文件、富文本等不能按纯文本还原；单行可直接打字，多行必须停止。
+            if _type_fallback(text):
+                logger.debug('原剪贴板不是纯文本，改用模拟打字')
             return
         try:
             seq = set_clipboard_text(text, exclude_history=restore_clipboard)
         except Exception as e:
             logger.warning(f'直写剪贴板失败: {e}')
             if restore_clipboard:
-                _keyboard.write(text)
+                _type_fallback(text)
                 return
             pyclip.copy(text)
             seq = clipboard_seq()

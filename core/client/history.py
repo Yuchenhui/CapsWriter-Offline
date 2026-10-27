@@ -15,6 +15,7 @@ from pathlib import Path
 from core.client import logger
 
 FILE_NAME = 'history.jsonl'
+SAMPLE_FILE_NAME = 'voice_samples.jsonl'
 MAX_BYTES = 512 * 1024     # 超过就裁剪
 KEEP_LINES = 300           # 裁剪后保留的最近条数
 
@@ -55,3 +56,41 @@ def read_entries(base_dir, limit: int = 200) -> list:
         if len(entries) >= limit:
             break
     return entries
+
+
+def record_sample(base_dir, *, task_id: str, audio_path, raw_text: str, polished_text: str,
+                  output_text: str, engine: str, polish: str, structure: bool, gain_db: float) -> None:
+    """把同一句的原始录音路径、ASR 原文、整理结果和最终上屏文本追加到 voice_samples.jsonl。
+    只存本机; 音频文件本身由录音层写在年/月/assets 下。"""
+    rec = {
+        'ts': time.time(),
+        'task_id': task_id,
+        'audio': str(audio_path) if audio_path else '',
+        'raw_text': raw_text,
+        'polished_text': polished_text,
+        'output_text': output_text,
+        'engine': engine,
+        'polish': polish,
+        'structure': bool(structure),
+        'gain_db': gain_db,
+    }
+    path = Path(base_dir) / SAMPLE_FILE_NAME
+    with path.open('a', encoding='utf-8') as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+
+
+def complete_capture_sample(base_dir, **sample) -> int:
+    """写入一条诊断样本并把剩余采集句数减一; 返回剩余数。采集关闭时不写。"""
+    from config_client import ClientConfig as Config
+    remaining = max(0, int(getattr(Config, 'diagnostic_capture_remaining', 0) or 0))
+    if remaining == 0:
+        return 0
+    record_sample(base_dir, **sample)
+    remaining -= 1
+    Config.diagnostic_capture_remaining = remaining
+    try:
+        from core.client import user_state
+        user_state.save()
+    except Exception as e:
+        logger.warning(f'保存对照样本采集进度失败: {e}')
+    return remaining

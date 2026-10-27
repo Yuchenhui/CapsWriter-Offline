@@ -82,6 +82,7 @@ class Result:
     
     # 主要输出（简单文本拼接）
     text: str = ''
+    raw_text: str = ''    # 二次整理前的 ASR 原文 (诊断用)
     
     # 精确输出（时间戳拼接）
     text_accu: str = ''

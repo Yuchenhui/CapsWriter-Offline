@@ -8,6 +8,7 @@
 from __future__ import annotations
 import asyncio
 import time
+from copy import copy
 from threading import Event
 from typing import TYPE_CHECKING, Optional
 
@@ -33,6 +34,20 @@ if TYPE_CHECKING:
     from core.client.state import ClientState
     from core.client.audio.recorder import AudioRecorder
     from core.client.app import CapsWriterClient
+
+
+class _RecordingState:
+    """只固定本句队列，其余状态读写仍转发至共享 ClientState。"""
+
+    def __init__(self, state, queue):
+        object.__setattr__(self, '_state', state)
+        object.__setattr__(self, 'queue_in', queue)
+
+    def __getattr__(self, name):
+        return getattr(self._state, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._state, name, value)
 
 
 
@@ -90,10 +105,18 @@ class ShortcutTask:
         if self._recorder_class is None:
             from core.client.audio.recorder import AudioRecorder
             self._recorder_class = AudioRecorder
-        return self._recorder_class(self.app)
+        # recorder 的取消分支会排空 state.queue_in，finish 还可能异步等待云端；
+        # 绑定本句队列，避免迟到清理/读取触及下一次按键创建的队列。
+        context = copy(self.app)
+        context.state = _RecordingState(self.state, self.state.queue_in)
+        return self._recorder_class(context)
 
     def launch(self) -> None:
         """启动录音任务"""
+        with self._end_lock:
+            self._launch_locked()
+
+    def _launch_locked(self) -> None:
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
 
         # 先把鼠标下的窗口切到前台, 结果就粘贴到那里 (替代 AHK 的 ~RAlt)
@@ -114,16 +137,8 @@ class ShortcutTask:
         cap = float(getattr(_Cfg, 'max_record_sec', 0) or 0)
         from core.ui import toast_recording
         toast_recording.cap_deadline = self.recording_start_time + cap if cap else 0.0
-        _threading.Thread(target=self._guard, args=(self.recording_start_time, cap), daemon=True, name='rec-guard').start()
-
-        # 将开始标志放入队列
-        asyncio.run_coroutine_threadsafe(
-            self.state.queue_in.put({'type': 'begin', 'time': self.recording_start_time, 'data': None}),
-            self.app.loop
-        )
-
-        # 更新录音状态
-        self.state.start_recording(self.recording_start_time)
+        # 与音频回调共用交接锁，begin 和预录必须先于首个实时块。
+        self.app.stream.begin_recording(self.recording_start_time)
 
         # 打印动画：正在录音
         self._status.start()
@@ -141,6 +156,7 @@ class ShortcutTask:
             recorder.record_and_send(),
             self.app.loop,
         )
+        _threading.Thread(target=self._guard, args=(self.recording_start_time, cap), daemon=True, name='rec-guard').start()
 
     def _unmute(self) -> None:
         t = getattr(self, '_mute_timer', None)
@@ -185,15 +201,16 @@ class ShortcutTask:
             if not self.is_recording:
                 return
             self.is_recording = False
+            self.app.stream.end_recording(cancel=True)
+            if self.task is not None:
+                self.task.cancel()
+                self.task = None
         self._clear_deadline()
         self._unmute()
         idle_release.schedule(self.app)
-        self.state.stop_recording()
         self._status.stop()
         self._rec_toast.stop()
 
-        self.task.cancel()
-        self.task = None
 
     def finish(self) -> None:
         """完成录音任务"""
@@ -201,24 +218,16 @@ class ShortcutTask:
             if not self.is_recording:
                 return
             self.is_recording = False
+            duration = self.app.stream.end_recording()
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
         self._clear_deadline()
         self._unmute()
         idle_release.schedule(self.app)
-        duration = self.state.stop_recording()
         self._status.stop()
         # 松键后胶囊不关闭，原地切换「转写中」；由 ResultProcessor/LLM 输出时关闭
         # 传录音时长供胶囊按比例放宽超时兜底（转录时延与录音时长成正比）
         self._rec_toast.processing(duration)
 
-        asyncio.run_coroutine_threadsafe(
-            self.state.queue_in.put({
-                'type': 'finish',
-                'time': time.time(),
-                'data': None
-            }),
-            self.app.loop
-        )
 
         # 执行 restore（可恢复按键 + 非阻塞模式）
         # 阻塞模式下按键不会发送到系统，状态不会改变，不需要恢复

@@ -191,7 +191,7 @@ class ResultProcessor:
 
         # 使用 text 字段（简单拼接结果，用于语音输入）
         text = message.text
-        original_text = text  # 保存原始识别结果
+        original_text = getattr(message, 'raw_text', '') or text  # 服务端二次整理前的 ASR 原文
         delay = message.time_complete - message.time_submit
 
         if message.is_final:
@@ -345,16 +345,37 @@ class ResultProcessor:
 
         # 保存录音与写入 md 文件
         file_audio = None
-        if Config.save_audio:
-            # 重命名音频文件
-            file_path = self.state.pop_audio_file(message.task_id)
-            if file_path:
-                file_manager = AudioFileManager()
-                file_manager.file_path = file_path
-                file_audio = file_manager.rename(text, message.time_start)
+        file_path = self.state.pop_audio_file(message.task_id)
+        if file_path:
+            file_manager = AudioFileManager()
+            file_manager.file_path = file_path
+            file_audio = file_manager.rename(text, message.time_start) or file_path
 
+        if Config.save_audio and file_audio:
             # 写入日记
             self.diary.write(text, message.time_start, file_audio)
+
+        if file_audio and int(getattr(Config, 'diagnostic_capture_remaining', 0) or 0) > 0:
+            final_output = (getattr(llm_result, 'result', None) if llm_result else None) or text
+            try:
+                from core.client import history
+                remaining = history.complete_capture_sample(
+                    self.app.base_dir,
+                    task_id=message.task_id,
+                    audio_path=file_audio,
+                    raw_text=original_text,
+                    polished_text=message.text,
+                    output_text=final_output,
+                    engine=str((_level or {}).get('engine') or Config.asr_engine),
+                    polish=str(Config.polish or ''),
+                    structure=bool(Config.polish_structure),
+                    gain_db=float((_level or {}).get('gain_db', 0) or 0),
+                )
+                if remaining == 0:
+                    from core.client.ui.recording_toast import hint_capsule
+                    hint_capsule('10 条对照样本已采集完成，可关闭采集', ok=True)
+            except Exception as e:
+                logger.warning(f'记录对照样本失败: {e}')
 
         # LLM 结果显示和保存
         if Config.llm_enabled and llm_result and llm_result.processed:

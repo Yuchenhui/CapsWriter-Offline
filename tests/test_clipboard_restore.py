@@ -32,6 +32,26 @@ class ClipboardRestoreTests(unittest.TestCase):
         write.assert_not_called()
         type_text.assert_called_once_with('识别结果')
 
+    def test_rich_clipboard_multiline_is_not_typed(self):
+        with (patch.object(cb.platform, 'system', return_value='Windows'),
+              patch.object(cb, 'plain_text_snapshot', return_value=None),
+              patch.object(cb._keyboard, 'write') as type_text,
+              patch('core.client.ui.recording_toast.hint_capsule') as hint):
+            asyncio.run(cb.paste_text('1. 第一项\n2. 第二项'))
+        type_text.assert_not_called()
+        hint.assert_called_once()
+        self.assertIn('历史', hint.call_args.args[0])
+
+    def test_write_failure_multiline_is_not_typed(self):
+        with (patch.object(cb.platform, 'system', return_value='Windows'),
+              patch.object(cb, 'plain_text_snapshot', return_value=(False, '旧文字', 7)),
+              patch.object(cb, 'set_clipboard_text', side_effect=OSError('busy')),
+              patch.object(cb._keyboard, 'write') as type_text,
+              patch('core.client.ui.recording_toast.hint_capsule') as hint):
+            asyncio.run(cb.paste_text('1. 第一项\n2. 第二项'))
+        type_text.assert_not_called()
+        hint.assert_called_once()
+
     def test_non_text_format_is_not_mistaken_for_plain_text(self):
         with (patch.object(cb, '_u32') as win,
               patch.object(cb, 'clipboard_seq', return_value=7),

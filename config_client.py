@@ -48,6 +48,7 @@ class ClientConfig:
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
 
     save_audio = False          # 是否保存录音文件 (关: 每句一个 WAV, 越积越多)
+    diagnostic_capture_remaining = 0  # 对照样本采集剩余句数 (设置页开启后为 10; 保存原始录音 + 四份文本, 完成自动归零)
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
 
     # 录音胶囊 (移植自 rockbenben/CapsWriter-Offline 09eb846/d5380b6/ca8b1ca)
@@ -99,6 +100,8 @@ class ClientConfig:
     mic_idle_release_sec = 1    # 说完 1 秒关麦克风, 按右 Alt 后台重开 (设置页「系统」开关; 0 = 常开).
                                 # 09-24 曾因"重开卡钩子 471ms"关掉, 后查明卡点是启动后首次按键的界面初始化 (已修).
                                 # 09-26 开启后实测: 重开 52ms (刚用过) / 428ms (隔 18s), 钩子耗时最大 5.3ms. 再卡键先关它
+    pre_roll_enabled = False    # 预录: 麦克风常开时 (mic_idle_release_sec <= 0) 缓存按键前最近的声音, 补上开口太早被切掉的开头 (设置页「麦克风」开关; 存 user_state.json)
+    pre_roll_seconds = 0.5      # 预录时长 (秒), 0.1~3.0 可调; 缓存只在内存里循环覆盖, 不落盘不上传, 按下快捷键后才并入本次录音一起送识别
     follow_default_mic = True   # 自动跟随 Windows 默认录音设备 (切换/插拔后 2 秒内生效, 录音中不切)
     mic_auto = True             # 按 mic_priority 顺序自动用第一个有信号的麦克风 (设为 Windows 默认, 约 4 秒生效, 录音中不切);
                                 # 无线麦发射器关着时录到全零, 会退到下一个. 关 = 只跟随手动选的默认设备. 设置页「麦克风」可开关

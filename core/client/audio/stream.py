@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import math
+from collections import deque
 import sys
 import time
 import threading
@@ -16,6 +19,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 import sounddevice as sd
 
+from config_client import ClientConfig as Config
 from core.client.state import console
 from . import logger
 
@@ -57,6 +61,71 @@ class AudioStreamManager:
         self._last_cb = 0.0    # 本地改 F5: 最近一次音频回调的时刻 (monotonic), 判断流是"活着但不送数据"
         self._lock = threading.RLock()   # 本地改 F5: 结束回调 / 按键唤醒 / 默认设备跟随 可能同时重开
         self.device_name = ''  # 本地改: 最近一次开流时 PortAudio 报的设备名 = 真正在录的麦克风 (不是 Windows 默认, 两者会差几秒)
+        # 与设备生命周期锁分离：close() 会等待回调退出，不能持回调锁关流。
+        self._audio_lock = threading.RLock()
+        self._generation = 0
+        self._pre_roll = deque()
+        self._pre_roll_frames = 0
+
+    def clear_pre_roll(self) -> None:
+        """设置禁用、设备关闭和短按取消时立即丢弃内存中的录音前音频。"""
+        with self._audio_lock:
+            self._pre_roll.clear()
+            self._pre_roll_frames = 0
+
+    def _pre_roll_limit(self) -> int:
+        if not getattr(Config, 'pre_roll_enabled', False):
+            return 0
+        if not float(getattr(Config, 'mic_idle_release_sec', 0) or 0) <= 0:
+            return 0
+        if not self._running or self.state.stream is None or self.is_stale(1.0):
+            return 0
+        raw = getattr(Config, 'pre_roll_seconds', 0.5)
+        try:
+            seconds = float(raw) if not isinstance(raw, bool) else 0.5
+        except (TypeError, ValueError, OverflowError):
+            seconds = 0.5
+        if not math.isfinite(seconds):
+            seconds = 0.5
+        return int(max(0.1, min(3.0, seconds)) * self.SAMPLE_RATE)
+
+    def _trim_pre_roll(self, limit: int) -> None:
+        while self._pre_roll_frames > limit:
+            data, stamp = self._pre_roll[0]
+            excess = self._pre_roll_frames - limit
+            if len(data) <= excess:
+                self._pre_roll.popleft()
+                self._pre_roll_frames -= len(data)
+            else:
+                # copy 避免一个小切片仍持有整块输入内存。
+                self._pre_roll[0] = (data[excess:].copy(), stamp)
+                self._pre_roll_frames -= excess
+
+    def begin_recording(self, start_time: float) -> asyncio.Queue:
+        """原子交接 begin -> 预录 -> 实时音频；每句队列独立，隔离迟到的取消/finish。"""
+        with self._audio_lock:
+            limit = self._pre_roll_limit()
+            self._trim_pre_roll(limit)
+            queue = self.state.queue_in = asyncio.Queue()
+            asyncio.run_coroutine_threadsafe(
+                queue.put({'type': 'begin', 'time': start_time, 'data': None}), self.app.loop)
+            for data, stamp in self._pre_roll:
+                asyncio.run_coroutine_threadsafe(
+                    queue.put({'type': 'data', 'time': stamp, 'data': data}), self.app.loop)
+            self.clear_pre_roll()
+            self.state.start_recording(start_time)
+            return queue
+
+    def end_recording(self, cancel: bool = False) -> float:
+        """与最后一个实时块串行结束；取消不把旧前缀留给下一次按键。"""
+        with self._audio_lock:
+            duration = self.state.stop_recording()
+            self.clear_pre_roll()
+            if not cancel:
+                asyncio.run_coroutine_threadsafe(
+                    self.state.queue_in.put({'type': 'finish', 'time': time.time(), 'data': None}),
+                    self.app.loop)
+            return duration
 
     def current_device_name(self) -> str:
         """当前(或最近一次)实际在录的设备名; 从没成功开过流则空串"""
@@ -79,38 +148,49 @@ class AudioStreamManager:
 
         当音频流接收到新数据时调用，将数据放入异步队列中。
         """
-        self._last_cb = time.monotonic()
-        # 只在录音状态时处理数据
-        if not self.state.recording:
-            return
+        with self._audio_lock:
+            if self.is_stale(1.0):
+                self.clear_pre_roll()
+            self._last_cb = time.monotonic()
+            limit = self._pre_roll_limit()
+            self._trim_pre_roll(limit)
+            if not self.state.recording:
+                if limit and len(indata):
+                    # 最多复制窗口大小，异常大回调也不临时保留超出上限的音频。
+                    data = indata[-limit:].copy()
+                    self._pre_roll.append((data, time.time()))
+                    self._pre_roll_frames += len(data)
+                    self._trim_pre_roll(limit)
+                return
 
-        # 闲置释放后重开麦克风会花约 0.5s。只有收到首个真实音频块才算就绪，
-        # 让胶囊由“启动中”切到绿色短闪，避免用户提前开口被吞句首。
-        try:
-            from core.client.ui.recording_toast import ready_active
-            ready_active()
-        except Exception:
-            pass
+            # 首个真实音频块才算就绪，避免冷启动时提前开口。
+            try:
+                from core.client.ui.recording_toast import ready_active
+                ready_active()
+            except Exception:
+                pass
 
-        import asyncio
+            try:
+                from core.ui.recording_level import set_level
+                set_level(float(np.sqrt(np.mean(np.square(indata)))))
+            except Exception:
+                pass
 
-        # 只读采样：算一下本块的 RMS 电平，喂给悬浮胶囊做真实波形（不影响录音/识别）
-        try:
-            from core.ui.recording_level import set_level
-            set_level(float(np.sqrt(np.mean(np.square(indata)))))
-        except Exception:
-            pass
+            if self.app.loop and self.state.queue_in:
+                asyncio.run_coroutine_threadsafe(
+                    self.state.queue_in.put({
+                        'type': 'data',
+                        'time': time.time(),
+                        'data': indata.copy(),
+                    }),
+                    self.app.loop
+                )
 
-        # 将数据放入队列
-        if self.app.loop and self.state.queue_in:
-            asyncio.run_coroutine_threadsafe(
-                self.state.queue_in.put({
-                    'type': 'data',
-                    'time': time.time(),
-                    'data': indata.copy(),
-                }),
-                self.app.loop
-            )
+    def _device_callback(self, generation, indata, frames, time_info, status) -> None:
+        with self._audio_lock:
+            if generation != self._generation:
+                return
+            self._audio_callback(indata, frames, time_info, status)
 
     def _on_stream_finished(self) -> None:
         """音频流结束回调"""
@@ -143,6 +223,11 @@ class AudioStreamManager:
             logger.debug("音频流已在运行，跳过启动")
             return self.state.stream
 
+        with self._audio_lock:
+            self.clear_pre_roll()
+            self._generation += 1
+            generation = self._generation
+
         # 检测音频设备
         try:
             device = sd.query_devices(kind='input')
@@ -169,7 +254,7 @@ class AudioStreamManager:
                 device=None,
                 dtype="float32",
                 channels=self._channels,
-                callback=self._audio_callback,
+                callback=lambda *args: self._device_callback(generation, *args),
                 finished_callback=self._on_stream_finished,
             )
             stream.start()
@@ -217,10 +302,10 @@ class AudioStreamManager:
             logger.warning(f"重载 PortAudio 时发生警告: {e}")
 
     def _stop_locked(self) -> None:
-        if not self._running:
-            return
-
-        self._running = False  # 标记为停止
+        with self._audio_lock:
+            self._generation += 1
+            self.clear_pre_roll()
+            self._running = False
         if self.state.stream is not None:
             try:
                 self.state.stream.close()

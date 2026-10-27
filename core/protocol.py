@@ -91,6 +91,7 @@ class RecognitionMessage:
     
     # 主要输出（简单文本拼接）
     text: str
+    raw_text: str = ''    # 二次整理前的 ASR 原文 (诊断用; 旧服务端缺省为空)
     
     # 精确输出（时间戳拼接）
     text_accu: str = ''
@@ -116,6 +117,7 @@ class RecognitionMessage:
             time_submit=data['time_submit'],
             time_complete=data['time_complete'],
             text=data['text'],
+            raw_text=data.get('raw_text', ''),
             text_accu=data.get('text_accu', ''),
             tokens=data.get('tokens', []),
             timestamps=data.get('timestamps', []),

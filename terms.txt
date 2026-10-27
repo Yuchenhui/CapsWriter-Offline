@@ -12,6 +12,8 @@ VS Code
 Claude Code
 CapsWriter
 Qwen3
+RNNoise
+DeepFilterNet
 DeepSeek
 MiniMax
 SenseVoice

@@ -84,7 +84,63 @@ def build(parent, pal, ctx):
     ToggleRow(c.body, pal, '小声说话自动增益',
               '气声/小声说话电平低, 云端引擎容易返空或只出半句; 开启后按上一句的说话电平把本句整体放大到目标电平再送识别 (句内增益恒定, 下一句生效)',
               bool(getattr(Config, 'asr_agc', False)), lambda v: ctx.do('set_asr_agc', v)).pack(fill='x', pady=4)
+    _remaining = int(ctx.state().get('diagnostic_capture_remaining', 0) or 0)
+    ToggleRow(c.body, pal, f'采集对照样本（剩余 {_remaining} 条）' if _remaining else '采集 10 条对照样本',
+              '保存每条语音的原始录音、ASR 原文、二次整理结果和最终上屏文本，按 task_id 关联到本机 '
+              'voice_samples.jsonl；录音在年/月/assets 下。完成 10 条自动停止，不上传。',
+              _remaining > 0, lambda v: ctx.do('set_diagnostic_capture', v)).pack(fill='x', pady=4)
+
+    section(f, pal, '预录').pack(anchor='w', pady=(22, 8))
+    c = Card(f, pal)
+    c.pack(fill='x')
+    ToggleRow(c.body, pal, '预录按键前的声音',
+              '麦克风常开时（「说完就关闭麦克风」关着）缓存按下快捷键前最近的声音，补上开口太早被切掉的开头；'
+              '只在内存里循环覆盖，不落盘、不上传，按下快捷键后才并入本次录音一起送识别（云端引擎会随录音发送）。'
+              '关掉开关立即清空已缓存的声音，改动即时生效',
+              bool(getattr(Config, 'pre_roll_enabled', False)), lambda v: ctx.do('set_pre_roll', v)).pack(fill='x', pady=4)
+    _pre_roll_sec_row(c.body, pal, ctx)
     return f
+
+
+def _pre_roll_sec_row(parent, pal, ctx):
+    from config_client import ClientConfig as Config
+    from core.client.settings import actions
+    lo, hi = actions.PRE_ROLL_RANGE
+    row = tk.Frame(parent, bg=pal.surface)
+    row.pack(fill='x', pady=4)
+    tk.Label(row, text='预录时长', font=font(11), bg=pal.surface, fg=pal.fg).pack(side='left')
+    tk.Label(row, text='秒', font=font(11), bg=pal.surface, fg=pal.muted).pack(side='right', padx=(6, 0))
+    cur = float(getattr(Config, 'pre_roll_seconds', 0.5) or 0.5)
+    var = tk.StringVar(value=f'{min(max(cur, lo), hi):g}')
+    e = tk.Entry(row, textvariable=var, width=5, justify='center', font=font(11), bg=pal.surface, fg=pal.fg,
+                 insertbackground=pal.fg, relief='flat', highlightthickness=1, highlightbackground=pal.border,
+                 highlightcolor=pal.accent)
+    e.pack(side='right', ipady=3)
+
+    def commit(_e=None):
+        """回车 / 离开输入框时保存; 非数字恢复原值, 超范围夹到 0.1~3.0 并回显"""
+        from config_client import ClientConfig as Config
+        try:
+            v = min(max(float(var.get().strip()), lo), hi)
+        except ValueError:
+            v = float(getattr(Config, 'pre_roll_seconds', 0.5) or 0.5)
+        var.set(f'{v:g}')
+        ctx.do('set_pre_roll_seconds', v)
+
+    def live(*_):
+        """边输边存 (范围内才存): 填完直接点导航切页不会触发回车 / 失焦"""
+        try:
+            v = float(var.get().strip())
+        except ValueError:
+            return
+        if lo <= v <= hi:
+            ctx.do('set_pre_roll_seconds', v)
+
+    var.trace_add('write', live)
+    e.bind('<Return>', commit)
+    e.bind('<FocusOut>', commit)
+    tk.Label(row, text=f'{lo:g}~{hi:g} 秒，缓存按键前最近这么长的声音；只在「说完就关闭麦克风」关着（麦克风常开）时生效',
+             font=font(9), bg=pal.surface, fg=pal.muted, wraplength=520, justify='left').pack(anchor='w', pady=(4, 0))
 
 
 def merge_order(visible: list, saved: list) -> list:

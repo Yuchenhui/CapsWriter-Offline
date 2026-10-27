@@ -114,6 +114,8 @@ class AudioRecorder:
             self._duration = 0.0
             self._cache = []
             self._vad_buf = []   # 本地改 2026-10-03: VAD 音频缓冲随句清空
+            self._capture_sample = bool(Config.save_audio or
+                                        int(getattr(Config, 'diagnostic_capture_remaining', 0) or 0) > 0)
             self._sumsq, self._nsamp, self._peak = 0.0, 0, 0.0   # 诊断: 本句音量
             self._blk_db = []   # 每 50ms 块的电平, 算底噪 / 信噪比
             from core.client.audio.decimate import Decimator3
@@ -122,7 +124,7 @@ class AudioRecorder:
             
             # 音频文件管理
             file_path = None
-            if Config.save_audio:
+            if self._capture_sample:
                 self._file_manager = AudioFileManager()
             
             # 从队列读取数据
@@ -155,7 +157,7 @@ class AudioRecorder:
                         continue
                     
                     # 创建音频文件
-                    if Config.save_audio and self._file_manager and file_path is None:
+                    if self._capture_sample and self._file_manager and file_path is None:
                         file_path, _ = self._file_manager.create(
                             task['data'].shape[1],
                             self._start_time
@@ -165,7 +167,7 @@ class AudioRecorder:
                     
                     # 获取音频数据
                     if self._cache:
-                        data = np.concatenate(self._cache)
+                        data = np.concatenate((*self._cache, task['data']))
                         self._cache.clear()
                     else:
                         data = task['data']
@@ -174,7 +176,7 @@ class AudioRecorder:
                     
                     # 保存音频至本地文件
                     self._duration += len(data) / 48000
-                    if Config.save_audio and self._file_manager:
+                    if self._capture_sample and self._file_manager:
                         self._file_manager.write(data)
                     
                     # 发送音频数据用于识别
@@ -206,7 +208,10 @@ class AudioRecorder:
                                     f"信噪比 {_voice - _noise:.0f} dB, 任务ID: {self.task_id}")
                         self.state.last_level = {'avg': round(float(_db((self._sumsq / self._nsamp) ** 0.5)), 1),
                                                  'peak': round(float(_db(self._peak)), 1), 'noise': round(_noise, 1),
-                                                 'voice': round(_voice, 1), 'snr': round(_voice - _noise, 1)}
+                                                 'voice': round(_voice, 1), 'snr': round(_voice - _noise, 1),
+                                                 'gain_db': round(float(20 * np.log10(self._agc_gain)), 2)
+                                                 if Config.asr_agc else 0.0,
+                                                 'engine': Config.asr_engine}
                     self.state.set_voice_level(self.task_id, dict(getattr(self.state, 'last_level', {}) or {}))
                     self._pending_voice = float(_voice) if self._nsamp else None   # 本地改 2026-10-27: AGC 用, 过了门限/VAD 才生效 (下面)
                     # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
@@ -222,7 +227,7 @@ class AudioRecorder:
                         from core.client import calibration
                         calibration.on_silence()
                         self._cache.clear()
-                        if Config.save_audio and self._file_manager:
+                        if self._capture_sample and self._file_manager:
                             self._file_manager.finish()
                         if self._cloud is not None:
                             self._cloud.cancel()
@@ -238,7 +243,7 @@ class AudioRecorder:
                         self._vad_buf.append(_dec16.copy())
 
                         self._duration += len(data) / 48000
-                        if Config.save_audio and self._file_manager:
+                        if self._capture_sample and self._file_manager:
                             # 本地改: F6 攒 10s 再发, 短句从没走到"创建音频文件"那步 -> 这里补建, 否则录音全丢 ("文件未打开")
                             if file_path is None:
                                 file_path, _ = self._file_manager.create(data.shape[1], self._start_time)
@@ -290,6 +295,8 @@ class AudioRecorder:
                                         reason='vad', duration_trigger=_vsec < Config.vad_min_speech_sec,
                                         ratio_trigger='speech_ratio' in _reasons)
                             console.print('    未检测到语音')
+                            if self._capture_sample and self._file_manager:
+                                self._file_manager.finish()
                             from core.client import calibration
                             calibration.on_silence()
                             if self._cloud is not None:
@@ -305,7 +312,7 @@ class AudioRecorder:
                         logger.info(f"VAD 未参与判定 (本句无音频缓冲), 放行, 任务ID: {self.task_id}")   # 本地改 2026-10-03: 详细日志
 
                     # 完成写入本地文件
-                    if Config.save_audio and self._file_manager:
+                    if self._capture_sample and self._file_manager:
                         self._file_manager.finish()
                         logger.debug("完成音频文件写入")
                     

@@ -37,6 +37,7 @@ async def ws_send(app):
                 time_submit=result.time_submit,
                 time_complete=result.time_complete,
                 text=result.text,
+                raw_text=result.raw_text,
                 text_accu=result.text_accu,
                 tokens=result.tokens,
                 timestamps=result.timestamps

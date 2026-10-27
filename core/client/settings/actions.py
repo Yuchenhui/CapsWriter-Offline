@@ -1,6 +1,7 @@
 # coding: utf-8
 """设置操作 (设置窗口经 Context.do 调用). 都返回 bool, 失败只记日志不抛"""
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -61,6 +62,14 @@ def set_asr_agc(on: bool) -> bool:
     return _set('asr_agc', bool(on), '小声说话自动增益')
 
 
+CAPTURE_SAMPLES = 10
+
+
+def set_diagnostic_capture(on: bool) -> bool:
+    """开: 采集接下来 10 条识别样本; 关: 立即停止。原始音频和文本只留本机。"""
+    return _set('diagnostic_capture_remaining', CAPTURE_SAMPLES if on else 0, '对照样本采集')
+
+
 def set_local_model(base_dir, key: str) -> bool:
     from core.client import server_launcher
     try:
@@ -85,6 +94,37 @@ def set_mic_priority(order: list) -> bool:
 
 IDLE_RELEASE_SEC = 1   # 说完 1 秒就关 (像微信输入法); 1 秒内接着按不关, 省一次重开
 
+PRE_ROLL_RANGE = (0.1, 3.0)
+
+
+def _clear_pre_roll(app) -> None:
+    """清掉已缓存的预录音频 (音频侧提供 app.stream.clear_pre_roll, 这里只调用); app 缺席时跳过"""
+    if app is None:
+        return
+    try:
+        app.stream.clear_pre_roll()
+    except Exception as e:
+        logger.debug(f'清空预录缓存失败: {e}')
+
+
+def set_pre_roll(app, on: bool) -> bool:
+    ok = _set('pre_roll_enabled', bool(on), '预录')
+    if ok and not on:
+        _clear_pre_roll(app)               # 关预录立即丢弃已缓存的声音
+    return ok
+
+
+def set_pre_roll_seconds(sec) -> bool:
+    """预录时长 (秒); 非数字 / 非有限值拒绝, 超范围夹到 0.1~3.0"""
+    lo, hi = PRE_ROLL_RANGE
+    try:
+        v = float(sec)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(v):
+        return False
+    return _set('pre_roll_seconds', round(min(max(v, lo), hi), 2), '预录时长 (秒)')
+
 
 def set_mic_idle(app, on: bool) -> bool:
     """开: 说完 1 秒关麦克风, 按右 Alt 时后台重开 (idle_release); 关: 麦克风常开, 已关着就立刻打开"""
@@ -94,6 +134,7 @@ def set_mic_idle(app, on: bool) -> bool:
     from core.client.audio import idle_release
     if on:
         idle_release.schedule(app)
+        _clear_pre_roll(app)               # 不再常开, 预录随即失效, 丢掉缓存
     elif not app.stream._running:
         import threading
         threading.Thread(target=app.stream.start, daemon=True, name='mic-wake').start()

@@ -61,9 +61,11 @@ class TaskPipeline:
         """任务结束: 二次整理 -> 格式化 -> token 回填 -> 统计. 本地识别与在线识别 (cloud_text) 共用"""
         # 任务结束清理与最终格式化
         raw_text = result.text
+        result.raw_text = raw_text
         if task.type == 'mic' and task.polish:
             # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
-            result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''), getattr(task, 'structure', False))
+            result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''),
+                                               getattr(task, 'structure', False), task.task_id)
         else:
             polished = False
         result.text = self.formatter.format(result.text, skip_num=polished)

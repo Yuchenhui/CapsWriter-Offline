@@ -31,7 +31,8 @@ class Context:
         s = {'asr_engine': getattr(C, 'asr_engine', 'local'), 'polish': getattr(C, 'polish', ''),
              'polish_structure': getattr(C, 'polish_structure', False), 'capsule_theme': getattr(C, 'capsule_theme', 'auto'),
              'capsule_follow_mouse': getattr(C, 'capsule_follow_mouse', True),
-             'asr_fallback': list(getattr(C, 'asr_fallback', []) or []), 'vad_enable': getattr(C, 'vad_enable', True)}
+             'asr_fallback': list(getattr(C, 'asr_fallback', []) or []), 'vad_enable': getattr(C, 'vad_enable', True),
+             'diagnostic_capture_remaining': int(getattr(C, 'diagnostic_capture_remaining', 0) or 0)}
         if self.readonly:                 # 预览是独立进程, 内存里的 Config 不是客户端的, 以 user_state.json 为准
             s.update(self._json('user_state.json'))
             s.update(self._preview)
@@ -75,7 +76,7 @@ class Context:
             return False
         if what in ('set_local_model', 'save_wordlist', 'set_autostart'):
             args = (self.base,) + args
-        elif what == 'set_mic_idle':
+        elif what in ('set_mic_idle', 'set_pre_roll'):
             args = (self.app,) + args
         elif what == 'calibrate':
             args = (self.app,)
