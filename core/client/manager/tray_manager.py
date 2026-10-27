@@ -85,8 +85,9 @@ class TrayManager:
         """托盘开关: 麦克风常开 (长期监听). 开 = 说完不再 1 秒关, 消除按键重开 ~0.5s 的首字丢失"""
         from core.client.settings import actions
         always = getattr(Config, 'mic_idle_release_sec', 1) == 0
-        actions.set_mic_idle(self.app, not always)
-        logger.info(f'托盘切换麦克风常开: {"开" if not always else "关"}')
+        # set_mic_idle(on) 语义: on=True = 说完就关, on=False = 常开 -> 目标状态是当前取反, 参数恰为 always
+        actions.set_mic_idle(self.app, always)
+        logger.info(f'托盘切换麦克风常开: {"关" if always else "开"}')
 
     def _toggle_asr_agc(self, icon=None, item=None):
         """托盘开关: 低电平自动增益 (audio/agc.py), 与设置页「麦克风 → 识别增强」同一开关"""
