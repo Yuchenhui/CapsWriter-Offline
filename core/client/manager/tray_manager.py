@@ -1,7 +1,8 @@
 # coding: utf-8
 """
 托盘 (本地改 2026-09-25): 三行状态 + 「复制最新一句」+「设置…」+「退出」.
-所有设置都在设置窗口 (core/client/settings) 里改; 原来的各设置子菜单已移除.
+本地改 2026-10-27: 加回两个可勾选快切开关 —— 「长期监听麦克风」(防重开首字丢失) 与
+「低电平自动增益」(气声说话治云端返空/残句); 其余设置仍在设置窗口 (core/client/settings) 里改.
 
 本地改 2026-10-15: 图标左键快捷操作 —— 单击复制最新一句历史 (toast 提示), 双击打开设置窗口.
 pystray 对单击/双击都只触发默认菜单项, 这里按 GetDoubleClickTime 自行判别.
@@ -58,6 +59,12 @@ class TrayManager:
         opts = [((lambda n: (lambda _item: self._status(n)))(n), 'status') for n in range(3)]
         opts.append(('左键单击图标＝复制最新一句，双击＝设置', 'status'))
         opts.append(('复制最新一句', self._on_icon_click, 'default'))
+        # 本地改 2026-10-27: 两个高频开关回托盘 (原「设置子菜单已移除」设计的例外, 用户点名要快切):
+        # 常开防首字丢失 (重开音频流 ~0.5s 空档会吃掉开头); AGC 治气声说话云端返空/残句
+        opts.append(('长期监听麦克风', self._toggle_mic_always,
+                     lambda: getattr(Config, 'mic_idle_release_sec', 1) == 0))
+        opts.append(('低电平自动增益', self._toggle_asr_agc,
+                     lambda: bool(getattr(Config, 'asr_agc', False))))
         opts.append(('设置…', self._open_settings))
         enable_min_to_tray('CapsWriter Client', icon_path, exit_callback=self.app.stop, more_options=opts, restart=False)
         logger.info("托盘图标已启用")
@@ -73,6 +80,20 @@ class TrayManager:
     def _open_settings(self):
         from core.client.settings.window import show
         show(self.app)
+
+    def _toggle_mic_always(self, icon=None, item=None):
+        """托盘开关: 麦克风常开 (长期监听). 开 = 说完不再 1 秒关, 消除按键重开 ~0.5s 的首字丢失"""
+        from core.client.settings import actions
+        always = getattr(Config, 'mic_idle_release_sec', 1) == 0
+        actions.set_mic_idle(self.app, not always)
+        logger.info(f'托盘切换麦克风常开: {"开" if not always else "关"}')
+
+    def _toggle_asr_agc(self, icon=None, item=None):
+        """托盘开关: 低电平自动增益 (audio/agc.py), 与设置页「麦克风 → 识别增强」同一开关"""
+        from core.client.settings import actions
+        on = bool(getattr(Config, 'asr_agc', False))
+        actions.set_asr_agc(not on)
+        logger.info(f'托盘切换低电平自动增益: {"关" if on else "开"}')
 
     @staticmethod
     def _double_click_time() -> float:

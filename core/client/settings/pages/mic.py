@@ -75,6 +75,15 @@ def build(parent, pal, ctx):
                          '校准按「正在录的设备」绑定，并临时关掉自动切换麦克风，免得中途被换设备。换麦克风或换场所时跑一次。',
              font=font(10), bg=pal.surface, fg=pal.fg, wraplength=560, justify='left').pack(anchor='w')
     Button(c.body, pal, '开始校准', lambda: ctx.do('calibrate'), primary=True).pack(anchor='w', pady=(10, 0))
+
+    section(f, pal, '识别增强').pack(anchor='w', pady=(22, 8))
+    c = Card(f, pal)
+    c.pack(fill='x')
+    from config_client import ClientConfig as Config
+    from core.client.settings.widgets import ToggleRow
+    ToggleRow(c.body, pal, '小声说话自动增益',
+              '气声/小声说话电平低, 云端引擎容易返空或只出半句; 开启后按上一句的说话电平把本句整体放大到目标电平再送识别 (句内增益恒定, 下一句生效)',
+              bool(getattr(Config, 'asr_agc', False)), lambda v: ctx.do('set_asr_agc', v)).pack(fill='x', pady=4)
     return f
 
 

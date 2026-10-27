@@ -21,6 +21,7 @@ import websockets
 from config_client import ClientConfig as Config
 from core.tools.terms import load_terms
 from core.client.state import console
+from core.client.audio import agc
 from core.client.audio.file_manager import AudioFileManager
 from core.client.connection import WebSocketManager
 from core.protocol import AudioMessage
@@ -67,6 +68,8 @@ class AudioRecorder:
         self._duration: float = 0.0
         self._cache: list = []
         self._vad_buf: list = []   # 本地改 2026-10-03: 攒 16k 重采样后的音频, 松开后跑 Silero VAD 判人声
+        self._agc_gain = 1.0        # 本地改 2026-10-27: AGC 增益, 句间记忆句内恒定 (audio/agc.py)
+        self._pending_voice = None  # 本句说话电平 (dBFS), 过了静音门限/VAD 才用于更新增益
 
     @property
     def state(self) -> ClientState:
@@ -142,8 +145,8 @@ class AudioRecorder:
                         self._nsamp += int(_d.size)
                         self._peak = max(self._peak, float(np.max(np.abs(_d))))
                         self._blk_db.append(10 * np.log10(float(np.mean(np.square(_d, dtype=np.float64))) + 1e-12))
-                    if self._cloud is not None:   # 在线识别实时推送 (不受静音门限积攒影响)
-                        self._cloud.feed(self._cdec.process(_d))
+                    if self._cloud is not None:   # 在线识别实时推送 (不受静音门限积攒影响); 10-27: AGC 放大后送
+                        self._cloud.feed(agc.apply(self._cdec.process(_d), self._agc_gain))
                     # 在阈值之前积攒音频数据 (本地改 F6: 开了静音门限时多攒到 silence_gate_hold 秒, 松开时整句判断)
                     _hold = Config.silence_gate_hold if getattr(Config, 'silence_rms_gate', 0) else 0
                     if task['time'] - self._start_time < max(Config.threshold, _hold):
@@ -165,7 +168,7 @@ class AudioRecorder:
                         self._cache.clear()
                     else:
                         data = task['data']
-                    _dec16 = self._dec.process(data)   # 本地改 2026-10-03: 降采样结果留给 VAD 攒着
+                    _dec16 = agc.apply(self._dec.process(data), self._agc_gain)   # 本地改 2026-10-03: 降采样结果留给 VAD; 10-27: AGC 放大后送识别
                     self._vad_buf.append(_dec16.copy())
                     
                     # 保存音频至本地文件
@@ -204,6 +207,7 @@ class AudioRecorder:
                                                  'peak': round(float(_db(self._peak)), 1), 'noise': round(_noise, 1),
                                                  'voice': round(_voice, 1), 'snr': round(_voice - _noise, 1)}
                     self.state.set_voice_level(self.task_id, dict(getattr(self.state, 'last_level', {}) or {}))
+                    self._pending_voice = float(_voice) if self._nsamp else None   # 本地改 2026-10-27: AGC 用, 过了门限/VAD 才生效 (下面)
                     # 本地改 (审计 F6): 整句平均音量低于门限且一段都还没发 -> 丢弃.
                     # 实测 2026-09-23: 没说话时 Qwen3 会把术语表 (context) 念成一段"识别结果" (平均 -53.5 / -50.1 dBFS)
                     _gate = float(getattr(Config, 'silence_rms_gate', 0) or 0)
@@ -229,7 +233,7 @@ class AudioRecorder:
                     if self._cache:
                         data = np.concatenate(self._cache)
                         self._cache.clear()
-                        _dec16 = self._dec.process(data)   # 本地改 2026-10-03: 与上面一致, 攒进 VAD 缓冲 (短句全在这条路径)
+                        _dec16 = agc.apply(self._dec.process(data), self._agc_gain)   # 本地改 2026-10-03: 与上面一致, 攒进 VAD 缓冲 (短句全在这条路径); 10-27: AGC
                         self._vad_buf.append(_dec16.copy())
 
                         self._duration += len(data) / 48000
@@ -308,6 +312,14 @@ class AudioRecorder:
                     console.print(f'    录音时长：{self._duration:.2f}s')
                     logger.info(f"录音任务完成，任务ID: {self.task_id}, 时长: {self._duration:.2f}s")
                     
+                    # 本地改 2026-10-27: AGC —— 本句已过静音门限/VAD, 按说话电平更新下一句增益 (本句用的增益早已生效, 见 audio/agc.py)
+                    if Config.asr_agc and self._pending_voice is not None:
+                        _new = agc.gain_linear(self._pending_voice, Config.asr_agc_target_voice_db, Config.asr_agc_max_gain_db)
+                        if abs(_new - self._agc_gain) > 0.05:
+                            logger.info(f"AGC: 本句说话 {self._pending_voice:.1f} dBFS, 下一句增益 {20 * np.log10(_new):+.1f} dB, 任务ID: {self.task_id}")
+                        self._agc_gain = _new
+                    self._pending_voice = None
+
                     # 在线识别结果 (本地改 2026-09-25): 拿到了服务端就跳过本地识别; 超时 / 失败为空, 服务端本地识别兜底
                     cloud_text = ''
                     if self._cloud is not None:
