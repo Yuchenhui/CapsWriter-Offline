@@ -119,6 +119,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                     context=msg.context,
                     language=msg.language,
                     polish=msg.polish, structure=msg.structure,
+                    translate_language=msg.translate_language, translate_provider=msg.translate_provider,
                     window=msg.window,
                 )
                 cache.offset += msg.seg_duration
@@ -150,6 +151,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 context=msg.context,
                 language=msg.language,
                 polish=msg.polish, structure=msg.structure,
+                translate_language=msg.translate_language, translate_provider=msg.translate_provider,
                 window=msg.window,
                 cloud_text=msg.text,
             )

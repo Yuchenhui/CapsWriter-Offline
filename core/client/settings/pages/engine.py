@@ -103,6 +103,17 @@ def build(parent, pal, ctx):
     ToggleRow(f, pal, '结构化整理', '说多件事时编号、分行', bool(st.get('polish_structure')),
               lambda v: ctx.do('set_structure', v)).pack(fill='x', pady=(12, 0))
 
+    section(f, pal, '翻译').pack(anchor='w', pady=(22, 8))
+    ToggleRow(f, pal, '启用翻译', '识别后整理并翻译，失败时输出原文', bool(st.get('translate_enabled')),
+              lambda v: ctx.do('set_translate_enabled', v)).pack(fill='x')
+    section(f, pal, '目标语言').pack(anchor='w', pady=(12, 8))
+    languages = [{'key': k, 'title': k} for k in ('英语', '日语', '韩语', '法语', '德语', '西班牙语')]
+    Dropdown(f, pal, languages, st.get('translate_language', '英语'),
+             lambda k: ctx.do('set_translate_language', k)).pack(fill='x')
+    section(f, pal, '翻译模型').pack(anchor='w', pady=(12, 8))
+    Dropdown(f, pal, polish_items[1:], st.get('translate_provider', 'deepseek'),
+             lambda k: ctx.do('set_translate_provider', k)).pack(fill='x')
+
     ToggleRow(f, pal, '语音活动检测 (VAD)', '过滤敲桌/键盘等语音噪声', bool(st.get('vad_enable', True)),
               lambda v: ctx.do('set_vad', v)).pack(fill='x', pady=(22, 0))
 

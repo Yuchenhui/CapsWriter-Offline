@@ -88,6 +88,9 @@ class ClientConfig:
     asr_agc_max_gain_db = 30.0  # AGC 最大增益 (dB), 防止把底噪/键盘声放到爆音; 输出限幅到 [-1,1]
     asr_agc_gain_db = 0.0       # 本地改 2026-10-27: AGC 当前增益 (dB), 每句按说话电平自动更新并存 user_state, 重启不丢; 手改会被覆盖
     polish_structure = False    # 结构化整理: 多件事排成编号列表并换行 (托盘「二次整理」里勾选; 需要先选服务商)
+    translate_enabled = False
+    translate_language = '英语'
+    translate_provider = 'deepseek'
 
     llm_enabled = False         # 关: 要逐字原样; 且角色 enable_read_selection 会发 Ctrl+C, 终端里会中断
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键

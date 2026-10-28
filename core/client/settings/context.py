@@ -30,6 +30,9 @@ class Context:
         from config_client import ClientConfig as C
         s = {'asr_engine': getattr(C, 'asr_engine', 'local'), 'polish': getattr(C, 'polish', ''),
              'polish_structure': getattr(C, 'polish_structure', False), 'capsule_theme': getattr(C, 'capsule_theme', 'auto'),
+             'translate_enabled': getattr(C, 'translate_enabled', False),
+             'translate_language': getattr(C, 'translate_language', '英语'),
+             'translate_provider': getattr(C, 'translate_provider', 'deepseek'),
              'capsule_follow_mouse': getattr(C, 'capsule_follow_mouse', True),
              'asr_fallback': list(getattr(C, 'asr_fallback', []) or []), 'vad_enable': getattr(C, 'vad_enable', True),
              'diagnostic_capture_remaining': int(getattr(C, 'diagnostic_capture_remaining', 0) or 0)}

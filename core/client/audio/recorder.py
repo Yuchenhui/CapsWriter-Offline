@@ -192,6 +192,8 @@ class AudioRecorder:
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
                         polish=Config.polish, structure=Config.polish_structure,
+                        translate_language=Config.translate_language if Config.translate_enabled else '',
+                        translate_provider=Config.translate_provider if Config.translate_enabled else '',
                         window=getattr(self, '_window', ''),
                         language=Config.language,
                     )
@@ -262,6 +264,8 @@ class AudioRecorder:
                             seg_overlap=Config.mic_seg_overlap,
                             context=load_terms() or Config.context,
                             polish=Config.polish, structure=Config.polish_structure,
+                            translate_language=Config.translate_language if Config.translate_enabled else '',
+                            translate_provider=Config.translate_provider if Config.translate_enabled else '',
                             window=getattr(self, '_window', ''),
                             language=Config.language,
                         )
@@ -364,6 +368,8 @@ class AudioRecorder:
                         seg_overlap=Config.mic_seg_overlap,
                         context=load_terms() or Config.context,
                         polish=Config.polish, structure=Config.polish_structure,
+                        translate_language=Config.translate_language if Config.translate_enabled else '',
+                        translate_provider=Config.translate_provider if Config.translate_enabled else '',
                         window=getattr(self, '_window', ''),
                         language=Config.language,
                         text=cloud_text,

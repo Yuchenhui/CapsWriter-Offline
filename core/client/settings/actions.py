@@ -53,6 +53,18 @@ def set_polish(pid: str) -> bool:
 def set_structure(on: bool) -> bool:
     return _set('polish_structure', bool(on), '结构化整理')
 
+def set_translate_enabled(on: bool) -> bool:
+    return _set('translate_enabled', bool(on), '翻译')
+
+
+def set_translate_language(language: str) -> bool:
+    return language in ('英语', '日语', '韩语', '法语', '德语', '西班牙语') and _set('translate_language', language, '翻译语言')
+
+
+def set_translate_provider(pid: str) -> bool:
+    from core.tools.polish_providers import PROVIDERS
+    return pid in PROVIDERS and _set('translate_provider', pid, '翻译模型')
+
 
 def set_vad(on: bool) -> bool:
     return _set('vad_enable', bool(on), 'VAD 语音活动检测')

@@ -38,6 +38,7 @@ async def ws_send(app):
                 time_complete=result.time_complete,
                 text=result.text,
                 raw_text=result.raw_text,
+                translated=result.translated,
                 text_accu=result.text_accu,
                 tokens=result.tokens,
                 timestamps=result.timestamps

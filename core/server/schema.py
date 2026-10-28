@@ -43,6 +43,8 @@ class Task:
     window: str = ''        # 录音时前台窗口, 二次整理上下文
     structure: bool = False  # 结构化整理
     polish: object = True   # 服务商 id 或旧版 bool, 见 core/tools/polish_providers.resolve
+    translate_language: str = ''
+    translate_provider: str = ''
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
     cloud_text: str = ''        # 客户端在线识别结果 (只在最终片段); 非空则跳过本地识别
@@ -83,6 +85,7 @@ class Result:
     # 主要输出（简单文本拼接）
     text: str = ''
     raw_text: str = ''    # 二次整理前的 ASR 原文 (诊断用)
+    translated: bool = False
     
     # 精确输出（时间戳拼接）
     text_accu: str = ''

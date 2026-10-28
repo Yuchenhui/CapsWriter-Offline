@@ -38,6 +38,8 @@ class AudioMessage:
     window: str = ''             # 录音开始时的前台窗口 (进程名 + 标题), 只给二次整理当上下文
     structure: bool = False      # 结构化整理: 多件事排成编号列表并换行 (需 polish 非空)
     polish: object = True        # 二次整理: 服务商 id ('' = 不整理); 旧版客户端传 True/False, 服务端用 polish_providers.resolve 兼容
+    translate_language: str = ''
+    translate_provider: str = ''
     text: str = ''               # 客户端已拿到的在线识别结果 (千问流式, 只在最后一条带); 非空时服务端跳过本地识别, 空 = 本地识别兜底
 
     def to_json(self) -> str:
@@ -59,6 +61,8 @@ class AudioMessage:
             language=data.get('language', 'auto'),
             polish=data.get('polish', True),
             structure=bool(data.get('structure', False)),
+            translate_language=data.get('translate_language', ''),
+            translate_provider=data.get('translate_provider', ''),
             window=data.get('window', ''),
             text=data.get('text', ''),
         )
@@ -92,6 +96,7 @@ class RecognitionMessage:
     # 主要输出（简单文本拼接）
     text: str
     raw_text: str = ''    # 二次整理前的 ASR 原文 (诊断用; 旧服务端缺省为空)
+    translated: bool = False
     
     # 精确输出（时间戳拼接）
     text_accu: str = ''
@@ -118,6 +123,7 @@ class RecognitionMessage:
             time_complete=data['time_complete'],
             text=data['text'],
             raw_text=data.get('raw_text', ''),
+            translated=bool(data.get('translated', False)),
             text_accu=data.get('text_accu', ''),
             tokens=data.get('tokens', []),
             timestamps=data.get('timestamps', []),

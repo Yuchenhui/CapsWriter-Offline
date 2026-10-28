@@ -65,6 +65,7 @@ class TrayManager:
                      lambda: getattr(Config, 'mic_idle_release_sec', 1) == 0))
         opts.append(('低电平自动增益', self._toggle_asr_agc,
                      lambda: bool(getattr(Config, 'asr_agc', False))))
+        opts.append(('翻译', 'submenu', self._translation_menu))
         opts.append(('设置…', self._open_settings))
         enable_min_to_tray('CapsWriter Client', icon_path, exit_callback=self.app.stop, more_options=opts, restart=False)
         logger.info("托盘图标已启用")
@@ -95,6 +96,21 @@ class TrayManager:
         on = bool(getattr(Config, 'asr_agc', False))
         actions.set_asr_agc(not on)
         logger.info(f'托盘切换低电平自动增益: {"关" if on else "开"}')
+
+    def _translation_menu(self):
+        from core.client.settings import actions
+        from core.tools.polish_providers import PROVIDERS
+        languages = ('英语', '日语', '韩语', '法语', '德语', '西班牙语')
+        return [
+            ('关闭翻译', lambda: actions.set_translate_enabled(False), lambda: not Config.translate_enabled),
+            ('启用翻译', lambda: actions.set_translate_enabled(True), lambda: bool(Config.translate_enabled)),
+            ('目标语言', 'submenu', lambda: [
+                (name, (lambda n: lambda: actions.set_translate_language(n))(name),
+                 (lambda n: lambda: Config.translate_language == n)(name)) for name in languages]),
+            ('翻译模型', 'submenu', lambda: [
+                (provider['name'], (lambda p: lambda: actions.set_translate_provider(p))(pid),
+                 (lambda p: lambda: Config.translate_provider == p)(pid)) for pid, provider in PROVIDERS.items()]),
+        ]
 
     @staticmethod
     def _double_click_time() -> float:

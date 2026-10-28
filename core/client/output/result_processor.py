@@ -246,7 +246,7 @@ class ResultProcessor:
             return
 
         # 繁体转换
-        if Config.traditional_convert:
+        if Config.traditional_convert and not message.translated:
             try:
                 text = zhconv_convert(text, Config.traditional_locale)
             except Exception as e:
@@ -254,15 +254,16 @@ class ResultProcessor:
 
         # 1. 音素检索，热词替换
         hotword_start = time.monotonic()
-        correction_result = self.hotword.get_phoneme_corrector().correct(text, k=10)
-        if Config.hot:
+        correction_result = None if message.translated else self.hotword.get_phoneme_corrector().correct(text, k=10)
+        if Config.hot and correction_result is not None:
             text = correction_result.text
 
         # 2. 去掉末尾符号
         text = TextOutput.strip_punc(text)
 
         # 3. 正则替换
-        text = self.hotword.get_rule_corrector().substitute(text)
+        if not message.translated:
+            text = self.hotword.get_rule_corrector().substitute(text)
         hotword_elapsed = time.monotonic() - hotword_start
 
         # 保存最近一次识别结果
@@ -282,8 +283,8 @@ class ResultProcessor:
             logger.debug(f"热词替换后: {text[:50]}{'...' if len(text) > 50 else ''}")
 
         # 热词匹配情况
-        matched_hotwords = correction_result.matches
-        potential_hotwords = correction_result.similars
+        matched_hotwords = correction_result.matches if correction_result is not None else []
+        potential_hotwords = correction_result.similars if correction_result is not None else []
 
         # 1. 显示完全匹配/已替换的热词
         if matched_hotwords and Config.hot:

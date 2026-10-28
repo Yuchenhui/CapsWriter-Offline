@@ -62,13 +62,15 @@ class TaskPipeline:
         # 任务结束清理与最终格式化
         raw_text = result.text
         result.raw_text = raw_text
-        if task.type == 'mic' and task.polish:
-            # 二次整理放在 format_num 之前: 模型看到的还是中文数字, 不会被"10003000"带偏
-            result.text, polished = polish_ex(result.text, task.polish, getattr(task, 'window', ''),
-                                               getattr(task, 'structure', False), task.task_id)
+        if task.type == 'mic' and (task.polish or task.translate_language):
+            result.text, polished = polish_ex(result.text, task.translate_provider if task.translate_language else task.polish,
+                                               getattr(task, 'window', ''), getattr(task, 'structure', False),
+                                               task.task_id, task.translate_language)
         else:
             polished = False
-        result.text = self.formatter.format(result.text, skip_num=polished)
+        result.translated = bool(task.type == 'mic' and task.translate_language and polished)
+        if not result.translated:
+            result.text = self.formatter.format(result.text, skip_num=polished)
         result.text_accu = self.formatter.format(result.text_accu)
         console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)
         console.print(f'  格式化后：[green]{result.text}\n', soft_wrap=True)
