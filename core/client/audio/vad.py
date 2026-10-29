@@ -70,10 +70,12 @@ def speech_stats(pcm: np.ndarray) -> dict:
             x /= 32768.0
         # 否则视为已归一化 (±1), 直接用. 2026-10-03 踩坑: Decimator3 输出已是 float32 ±1,
         # 再除 32768 会变成 ~1e-5 的数字静音, VAD 恒判无人声 (峰值概率恒 0.044)
-        # 峰值归一化到 0.9: 麦克风电平低的日子 (本机说话 p90 仅 -44 dBFS) 小声说话也能检出,
-        # 实测衰减 40 dB 的语音归一化后照常识别, 噪声/敲桌脉冲归一化后仍判无人声
-        _peak = float(np.max(np.abs(x))) or 1e-9
-        x = x / _peak * 0.9
+        # 本地改 2026-10-29: p95 分位归一化到 0.9. 之前按峰值归一化, 峰值被瞬态 (喷麦/咔哒) 占住时
+        # 整句人声被压到很低幅度, Silero 概率大部分窗掉到 0.5 以下, 正常句被 ratio<0.07 误杀
+        # (2026-10-29 实测: 8s/11.6s 真说话只检出 speech_sec 0.48s/0.1s, ratio 0.056/0.008).
+        # p95 只看持续成分, 单个瞬态峰不抬基准; 纯静音 p95≈0 走 1e-9 兜底, clip 防小分位放大溢出.
+        _ref = float(np.percentile(np.abs(x), 95))
+        x = np.clip(x / (_ref or 1e-9) * 0.9, -1.0, 1.0)
         state = np.zeros((2, 1, 128), dtype=np.float32)
         speech_frames = 0
         max_prob = 0.0

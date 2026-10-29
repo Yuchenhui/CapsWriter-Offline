@@ -27,6 +27,7 @@ from core.client.udp.udp_broadcaster import broadcast_output_udp
 from core.tools.zhconv import convert as zhconv_convert
 from core.client.audio.file_manager import AudioFileManager
 from core.client.audio.level import SNR_MIN
+from core.tools.terms import looks_like_dump as terms_looks_like_dump
 from core.client.llm.llm_write_md import write_llm_md
 from core.client.ui.recording_toast import close_processing as close_recording_hud, warn_active as warn_recording_hud
 
@@ -203,6 +204,17 @@ class ResultProcessor:
             if calibration.on_result(original_text):
                 close_recording_hud()
                 return
+
+        # 本地改 2026-10-29: 词库回显拦截 —— Qwen3 在残留噪声/被串入的无关音频上会把整个词库
+        # context 原样复读成"识别结果". 检出即吞掉, 只弹黄色 ⚠ 胶囊, 不上屏 (用户要求).
+        if terms_looks_like_dump(text):
+            trace_event(message.task_id, 'output_rejected', reason='terms_dump', chars=len(text))
+            logger.info(f'输出疑似词库全文回显 ({len(text)} 字), 拦截不上屏, 任务ID: {message.task_id}')
+            warn_recording_hud('疑似词库回显 已拦截')
+            console.print('    [yellow]⚠ 输出疑似词库回显, 已拦截不上屏[/yellow]')
+            self._log_modifier_key_state()
+            console.line()
+            return
         else:
             logger.debug(
                 f"接收到识别结果，文本: {text[:50]}{'...' if len(text) > 50 else ''}, "

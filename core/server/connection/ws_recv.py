@@ -36,6 +36,7 @@ class AudioCache:
         self.chunks: bytes = b''    # 音频数据缓冲
         self.offset: float = 0.0    # 当前偏移时间（秒）
         self.byte_count: int = 0    # 累计接收字节数
+        self.task_id: str = ''      # 本地改 2026-10-29: 当前缓冲属于哪一句 (客户端一句话一个 task_id)
 
     @property
     def duration(self) -> float:
@@ -52,6 +53,7 @@ class AudioCache:
         self.chunks = b''
         self.offset = 0.0
         self.byte_count = 0
+        self.task_id = ''
 
 
 async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) -> None:
@@ -83,6 +85,15 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     try:
         # base64 解码音频数据（float32, 16kHz, mono）
         data = b64decode(msg.data)
+        # 本地改 2026-10-29: 客户端被 VAD/静音门限拒绝或被取消的句子不会发 is_final,
+        # 其已发出的音频会一直滞留在本缓存, 并进下一句的 is_final 一起识别
+        # (实测: 8.5s+11.6s 两个被拒句并进第三句, 23.55s 一次输出). 同一连接里
+        # task_id 变了而缓存非空 => 上一句已被客户端丢弃, 作废残留, 从零起句.
+        if cache.task_id and msg.task_id != cache.task_id and cache.chunks:
+            logger.warning(
+                f"上一句 {cache.task_id[:8]} 未收到 is_final, 丢弃残留音频 {cache.duration:.2f}s (被拒/被取消)")
+            cache.reset()
+        cache.task_id = msg.task_id
         if len(cache.chunks) + len(data) > _MAX_CACHE_BYTES:
             logger.warning(f"音频缓冲超过 {_MAX_CACHE_BYTES >> 20}MB, 丢弃该任务 {msg.task_id}")
             cache.reset()
