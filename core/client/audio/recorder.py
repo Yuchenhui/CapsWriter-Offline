@@ -69,7 +69,11 @@ class AudioRecorder:
         self._cache: list = []
         self._vad_buf: list = []   # 本地改 2026-10-03: 攒 16k 重采样后的音频, 松开后跑 Silero VAD 判人声
         # 本地改 2026-10-27: 增益存 Config+user_state (跨句、跨重启); AudioRecorder 每句新建, 不能放实例属性
-        self._agc_gain = 10.0 ** (float(getattr(Config, 'asr_agc_gain_db', 0.0) or 0.0) / 20.0)
+        # 2026-10-31 修: 开关关着时残留增益不能再套用. 之前 user_state 里存的 asr_agc_gain_db 被无条件
+        # 还原成 _agc_gain, agc.apply 也无条件乘 (只有"更新增益"受 asr_agc 控制), 于是关掉开关后仍按
+        # 上次气声实验的 +30 dB 放大, 送识别音频硬削波
+        self._agc_gain = (10.0 ** (float(getattr(Config, 'asr_agc_gain_db', 0.0) or 0.0) / 20.0)
+                          if getattr(Config, 'asr_agc', False) else 1.0)
         self._pending_voice = None  # 本句说话电平 (dBFS), 过了静音门限/VAD 才用于更新增益
 
     @property

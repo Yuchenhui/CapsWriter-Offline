@@ -71,7 +71,12 @@ def set_vad(on: bool) -> bool:
 
 
 def set_asr_agc(on: bool) -> bool:
-    return _set('asr_agc', bool(on), '小声说话自动增益')
+    ok = _set('asr_agc', bool(on), '小声说话自动增益')
+    if not on:   # 2026-10-31: 关掉时清零残留增益; 否则下次开/重启会把旧增益当成本句增益套用
+        from core.client import user_state
+        Config.asr_agc_gain_db = 0.0
+        user_state.save()
+    return ok
 
 
 CAPTURE_SAMPLES = 10
