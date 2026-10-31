@@ -34,3 +34,6 @@ Transformer
 18200006666 | 我的手机号 | input my phone
 上海市浦东新区张江高科技园区 | input my address
 hello@example.com | 我的邮箱 | input my email
+change | 秤值 | 衬值 ~~~ 称职
+Codex agent | cost agent
+Anti-gravity | anti graffiti

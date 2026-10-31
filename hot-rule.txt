@@ -46,3 +46,4 @@
 (Qwen\d+)\s*点\s*七   =   \g<1>.7
 (Qwen\d+)\s*点\s*八   =   \g<1>.8
 (Qwen\d+)\s*点\s*九   =   \g<1>.9
+\bCRI\b = CLI
