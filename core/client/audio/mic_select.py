@@ -191,6 +191,20 @@ def _norm(name: str) -> str:
     return re.sub(r'\s*\(\d+\)$', '', n)
 
 
+# 本地改 2026-11-08: PortAudio/WASAPI 报的名字带 'Microphone (...)' / '麦克风 (…)' 外壳,
+# 对用户没有信息量, 设置页/托盘/胶囊统一显示剥壳后的型号. 与 toast_recording._mic_fit /
+# capsule_themes._fit_mic_text 同规则 (那两处离 UI 近, 保留各自截断逻辑)
+_DISPLAY_WRAPPER = re.compile(r'^(?:麦克风|麥克風|Microphone|マイク)\s*[（(](.+)[)）]$')
+
+
+def display_name(name: str) -> str:
+    """设备展示名: 去掉 'Microphone (…)' / '麦克风 (…)' 外壳, 只留具体型号.
+    没有外壳 (如 'Microphone Array (Realtek(R) Audio)') 时原样返回"""
+    n = str(name or '').strip()
+    m = _DISPLAY_WRAPPER.match(n)
+    return m.group(1).strip() if m else n
+
+
 def name_matches(portaudio_name: str, friendly_name: str) -> bool:
     """PortAudio (WASAPI) 报的设备名与 Windows 端点友好名是不是同一个设备.
 

@@ -24,13 +24,13 @@ def build(parent, pal, ctx):
         if i == cur:
             tags.append('Windows 默认')
         detail = f'增益 {db:+.1f} dB' + (' · ' + ' · '.join(tags) if tags else '')
-        items.append({'key': i, 'title': name, 'detail': detail, 'warn': '已静音' if muted else ''})
+        items.append({'key': i, 'title': mic_select.display_name(name), 'detail': detail, 'warn': '已静音' if muted else ''})
     ChoiceGroup(f, pal, items or [{'key': '', 'title': '没有可用的录音设备', 'disabled': True}], cur,
                 lambda k: ctx.do('set_mic', k)).pack(fill='x')
     tk.Label(f, text='设备上的物理静音键 Windows 看不到：录音一直没声音时先检查它', font=font(9), bg=pal.bg,
              fg=pal.muted).pack(anchor='w', pady=(6, 0))
     if live is not None and live[0] != cur:
-        tk.Label(f, text=f'正在录的是 {live[1]}，与 Windows 默认设备不同：刚换过设备时默认端点约需 2 秒生效，'
+        tk.Label(f, text=f'正在录的是 {mic_select.display_name(live[1])}，与 Windows 默认设备不同：刚换过设备时默认端点约需 2 秒生效，'
                          f'自动切换开着也会按优先顺序改回来', font=font(9), bg=pal.bg, fg=pal.danger,
                  wraplength=560, justify='left').pack(anchor='w', pady=(4, 0))
 
@@ -144,17 +144,22 @@ def _pre_roll_sec_row(parent, pal, ctx):
 
 
 def merge_order(visible: list, saved: list) -> list:
-    """拖拽后的新顺序 + 当前没插着的设备 (留在它原来的位置, 免得在家排序把公司的无线麦挤到最后)"""
+    """拖拽后的新顺序 + saved 里当前没插着的设备.
+    本地改 2026-11-08: 原来按 saved 原索引 insert 回前部 —— saved 里躺着的幽灵项
+    (匹配不到任何在线设备的名字, 如 'Wireless Mic Rx') 会把用户刚拖到第一的在线设备
+    挤到后面 (表现为"拖好的顺序保存后又变了"). 改为: 在线设备完全按拖拽结果,
+    离线项原样追加到尾部 (保住"没插着的设备别丢"的初衷, 但不再抢占优先级)"""
     out = list(visible)
-    for i, p in enumerate(saved):
-        if not any(p in n for n in visible):
-            out.insert(min(i, len(out)), p)
+    for p in saved:
+        if p not in out:
+            out.append(p)
     return out
 
 
 def _priority_section(f, pal, ctx, devs):
     from config_client import ClientConfig as Config
     from core.client.settings.widgets import SortList, Toggle
+    from core.client.audio.mic_select import display_name
     section(f, pal, '优先顺序').pack(anchor='w', pady=(22, 8))
     row = tk.Frame(f, bg=pal.bg)
     row.pack(fill='x', pady=(0, 8))
@@ -166,6 +171,8 @@ def _priority_section(f, pal, ctx, devs):
         saved = list(getattr(Config, 'mic_priority', None) or [])
         ctx.do('set_mic_priority', merge_order(order, saved))
 
-    SortList(f, pal, [{'key': n, 'title': n} for n in names], save).pack(fill='x')
+    # 本地改 2026-11-08: 显示用剥壳型号 (Microphone (…) 外壳无信息量), key 仍是全名
+    # (pick_preferred 按全名片段匹配, 存回去的也必须是全名)
+    SortList(f, pal, [{'key': n, 'title': display_name(n)} for n in names], save).pack(fill='x')
     tk.Label(f, text='拖动排序。无线麦发射器关着、耳机按了静音时录到的是全零，会自动跳到下一个；开着自动切换时手动选的设备会被切回',
              font=font(9), bg=pal.bg, fg=pal.muted, wraplength=560, justify='left').pack(anchor='w', pady=(6, 0))
