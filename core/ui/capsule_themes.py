@@ -557,30 +557,29 @@ APPEAR, TO_PROC, SHRINK, POP, HOLD, FADE = 0.18, 0.22, 0.26, 0.45, 0.8, 0.2
 class Capsule:
     """每帧给出整窗图像. 调用方只需报告模式 (recording / processing / done) 与 0-1 的音量."""
 
-    # 本地改 2026-11-08: 麦克风名放下方一行 (竖排) —— 横排在右侧把胶囊撑到 400+px 太宽 (用户反馈).
-    # 壳向下延 _CHIP_ROW 高, 设备名水平居中画在那一行; 完成态随收缩动画塌缩淡出.
-    # 名字太长时胶囊适当加宽 (仍远窄于横排), _CHIP_TEXT_MAX 兜底截断
+    # 本地改 2026-11-08: 麦克风名独立成下方第二个小胶囊 (用户: 一个竖高胶囊太丑, 要两个之间有隔断).
+    # 上胶囊 = 主题原样 (声波/计时); 下胶囊 = 圆角小药丸 (主题底 + 前景色淡描边), mic 图标 + 设备名居中.
+    # 两胶囊间 _CHIP_GAP 透明间距; 完成态上胶囊缩圆, 下胶囊同步淡出塌缩
+    _CHIP_GAP = 6
     _CHIP_ROW = 22
-    _CHIP_GAP_TOP = 4      # 麦克风行与主题内容间的间距 (Frost 底部有贴边进度条, 不间距会粘连)
+    _CHIP_PAD = 12
     _CHIP_TEXT_MAX = 200
 
     def __init__(self, theme, mic_label: str = ''):
         self.th = theme
-        # 本地改 2026-11-08: 麦克风行 (无字/无等宽字体时 _chip_row=0 = 不延高)
+        # 本地改 2026-11-08: 下胶囊 (无字/无等宽字体时 _chip_row=0 = 不建)
         self._chip_font = mono_font(11)
         self.mic_label = ''
         self._chip_row = 0
-        self._chip_row_w = 0      # 该行需要的宽度 (图标+字+内边距), 超过主题宽度时胶囊加宽
+        self._chip_row_w = 0      # 下胶囊宽 (图标+字+两侧内边距), 不超过上胶囊宽
         if mic_label and self._chip_font is not None:
-            # 竖排: 字优先可读 —— 名字超过主题壳宽时胶囊加宽 (仍远窄于横排 406px),
-            # _CHIP_TEXT_MAX 兜底防无限宽. 小主题 (Pebble/Halo) 也能放全名
             text = self._fit_mic_text(str(mic_label))
             if text:
                 self.mic_label = text
                 self._chip_row = self._CHIP_ROW
-                self._chip_row_w = 11 + 5 + self._chip_font.getlength(text) / U() + 16
+                self._chip_row_w = min(theme.MAX_W, 11 + 5 + self._chip_font.getlength(text) / U() + self._CHIP_PAD * 2)
         self.CW = int(math.ceil(max(theme.MAX_W, self._chip_row_w))) + 2   # 胶囊画板宽 (四周留 1px 给抗锯齿)
-        self.CH = int(theme.H) + 2 + self._chip_row + (self._CHIP_GAP_TOP if self._chip_row else 0)                        # 画板高 = 主题 + 麦克风行
+        self.CH = int(theme.H) + 2 + (self._chip_row + self._CHIP_GAP if self._chip_row else 0)   # 画板高 = 主题 + 隔断 + 下胶囊
         self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距), 逻辑像素
         # 屏幕像素 (按 SCALE): 调用方据此建窗 —— 窗口 = 胶囊 (cap_w x cap_h) + 四周 margin_px
         self.win_w, self.win_h, self.margin_px = px(self.W), px(self.H), px(MARGIN)
@@ -614,16 +613,16 @@ class Capsule:
         return out + '…'
 
     def set_mic_label(self, text: str) -> None:
-        """更新设备名 (每帧可调; 首次出现时按需延高一行). 无等宽字体时不显示"""
+        """更新设备名 (每帧可调; 首次出现时按需建下胶囊). 无等宽字体时不显示"""
         if self._chip_font is None:
             return
         t = self._fit_mic_text(str(text or '')) if text else ''
         if t == self.mic_label:
             return
         self.mic_label = t
-        if t and not self._chip_row:      # 冷启动晚到: 名字第一次出现, 启用麦克风行
+        if t and not self._chip_row:      # 冷启动晚到: 名字第一次出现, 建下胶囊
             self._chip_row = self._CHIP_ROW
-            self._chip_row_w = 11 + 5 + self._chip_font.getlength(t) / U() + 16
+            self._chip_row_w = min(self.th.MAX_W, 11 + 5 + self._chip_font.getlength(t) / U() + self._CHIP_PAD * 2)
             self._resize()
         elif not t and self._chip_row:    # 名字消失 (换设备瞬间)
             self._chip_row, self._chip_row_w = 0, 0
@@ -632,29 +631,35 @@ class Capsule:
     def _resize(self) -> None:
         """按当前 _chip_row / _chip_row_w 重算画板与屏幕尺寸 (调用方据此重建窗口)."""
         self.CW = int(math.ceil(max(self.th.MAX_W, self._chip_row_w))) + 2
-        self.CH = int(self.th.H) + 2 + self._chip_row + (self._CHIP_GAP_TOP if self._chip_row else 0)
+        self.CH = int(self.th.H) + 2 + (self._chip_row + self._CHIP_GAP if self._chip_row else 0)
         self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN
         self.win_w, self.win_h, self.margin_px = px(self.W), px(self.H), px(MARGIN)
         self.cap_w, self.cap_h = self.win_w - 2 * self.margin_px, self.win_h - 2 * self.margin_px
 
-    def _paint_chip(self, pen: Pen, cx: float, top: float, fade: float, width: float = 0.0) -> None:
-        """本地改 2026-11-08 竖排: 在胶囊下部一行 (top 起, 高 _chip_row) 水平居中画
-        mic 图标 + 设备名小字. fade=透明度, width>0 时按给定可见宽截断 (完成态收缩用)"""
+    def _paint_chip(self, pen: Pen, fade: float, width: float = 0.0) -> None:
+        """本地改 2026-11-08 双胶囊: 在画板中下方画独立小药丸 (主题底 + 前景色淡描边),
+        mic 图标 + 设备名水平居中. width>0 时按给定可见宽截断 (完成态收缩用)"""
         if self._chip_row <= 0 or fade <= 0.01 or not self.mic_label:
             return
         fg = getattr(self.th, 'FG', None) or getattr(self.th, 'ACCENT', None) or '#ffffff'
-        cy = top + self._chip_row / 2
-        icon_w, gap, pad = 11, 5, 8
+        bg = getattr(self.th, 'BG', None) or '#0a0a0c'
+        row_w = self._chip_row_w if width <= 0 else min(width, self._chip_row_w)
+        top = 1 + self.th.H + self._CHIP_GAP
+        cx, cy = self.CW / 2, top + self._chip_row / 2
+        icon_w, gap, pad = 11, 5, self._CHIP_PAD
+        avail = row_w - pad * 2 - icon_w - gap          # 文字可用宽 (常态也按它截, 不放宽药丸)
         text = self.mic_label
-        if width > 0:                    # 收缩中: 可见宽变窄, 文本按比例截断
-            avail = width - pad * 2 - icon_w - gap
-            while text and self._chip_font.getlength(text) / U() > avail:
-                text = text[:-1]
-            if text != self.mic_label:
-                text = text.rstrip() + '…'
+        while text and self._chip_font.getlength(text + '…') / U() > avail:
+            text = text[:-1]
+        if text != self.mic_label:
+            text = text.rstrip() + '…'
+        if row_w < 20:                    # 塌缩到没意义就不画
+            return
+        # 独立小药丸: 主题底色 + 前景色 14% 淡描边 (与上胶囊同底, 看着是一套)
+        pen.rrect(cx - row_w / 2, cy - self._chip_row / 2, cx + row_w / 2, cy + self._chip_row / 2,
+                  self._chip_row / 2, fill=rgba(bg, 0.92 * fade), outline=rgba(fg, 0.14 * fade), width=1)
         tw = self._chip_font.getlength(text) / U()
-        total = icon_w + gap + tw
-        x0 = cx - total / 2
+        x0 = cx - (icon_w + gap + tw) / 2
         mic(pen, x0 + icon_w / 2, cy, icon_w, rgba(fg, 0.72 * fade), stroke=2)
         pen.text(x0 + icon_w + gap, cy, text, self._chip_font, rgba(fg, 0.78 * fade))
 
@@ -720,33 +725,26 @@ class Capsule:
             a, s = 1 - k, 1 - 0.1 * k
 
         inner = Pen(self.CW, self.CH)
-        row = self._chip_row          # 本地改 2026-11-08: 麦克风行高 (0 = 不显示)
-        # 壳高: 录音/整理 = 主题 + 麦克风行; done 收缩时行先塌缩掉, 壳回到主题高
-        shell_h = th.H + row + (self._CHIP_GAP_TOP if row else 0)
+        row = self._chip_row          # 本地改 2026-11-08: 下胶囊高 (0 = 不建)
+        # 上胶囊壳高: 录音/整理 = 主题原高 (不再被麦克风区撑高); done 收缩照旧
+        shell_h = th.H
+        chip_fade = 1.0              # 下胶囊透明度 (done 收缩时淡出)
         if self.mode == 'recording':
-            w = max(th.width('recording'), self._chip_row_w)
+            w = th.width('recording')
             th.paint_recording(inner, x0(w), y0, t, self.level, 1.0)
-            if row:
-                self._paint_chip(inner, self.CW / 2, y0 + th.H + self._CHIP_GAP_TOP, 1.0)
         elif self.mode == 'processing':
             m = ease_in_out(el / TO_PROC)
-            base = th.width('recording') + (th.width('processing') - th.width('recording')) * m
-            w = max(base, self._chip_row_w)
+            w = th.width('recording') + (th.width('processing') - th.width('recording')) * m
             if m < 1:
                 th.paint_recording(inner, x0(w), y0, t, self.level, 1 - m, flatten=m)
             th.paint_processing(inner, x0(w), y0, t, m)
-            if row:
-                self._paint_chip(inner, self.CW / 2, y0 + th.H + self._CHIP_GAP_TOP, 1.0)
         else:   # done: 先缩成圆 (整理内容淡出), 再弹对勾
             m = ease_in_out(el / SHRINK)
-            row_t = row * (1 - m)   # 本地改 2026-11-08: 麦克风行随收缩塌缩, 与整理内容同步淡出
-            w = th.width('processing') + row_t + (th.H - th.width('processing')) * m
-            shell_h = th.H + row_t + (self._CHIP_GAP_TOP if row_t > 2 else 0)
+            w = th.width('processing') + (th.H - th.width('processing')) * m
             if m < 1:
                 fade = 1 - ease_out(m / 0.6)
                 th.paint_processing(inner, x0(w), y0, t, fade)   # 缩到 60% 前淡完
-                if row_t > 2:
-                    self._paint_chip(inner, self.CW / 2, y0 + th.H + self._CHIP_GAP_TOP, fade, width=row_t)
+                chip_fade = fade      # 下胶囊与整理内容同步淡出
             if el > SHRINK:
                 if getattr(self, 'warning', False):
                     # Use the same terminal animation as success, with an amber !.
@@ -759,12 +757,20 @@ class Capsule:
                 else:
                     th.paint_done(inner, self.CW / 2, 1 + th.H / 2, (el - SHRINK) / POP)
 
-        # 内容 (4 倍画, 预乘后缩小) 按外壳蒙版裁剪 -> 叠到缓存的外壳上
+        # 上胶囊内容 (4 倍画, 预乘后缩小) 按外壳蒙版裁剪 -> 叠到缓存的外壳上
         shell, mask = self._shell(w, shell_h, self.mode)
         content = inner.img.convert('RGBa').reduce(SS).convert('RGBA')
         content.putalpha(ImageChops.multiply(content.getchannel('A'), mask))
         cap = shell.copy()
         cap.alpha_composite(content)
+        # 下胶囊: 独立小药丸, 不经上胶囊蒙版裁剪 (它有自己的圆角轮廓).
+        # inner.img 是 SS 倍大图, reduce 成 1 倍整窗图后按下胶囊位置截一段叠上来
+        if row:
+            self._paint_chip(inner, chip_fade)
+            lower = inner.img.convert('RGBa').reduce(SS).convert('RGBA')   # 1 倍 (CW x CH) 逻辑像素
+            band_y = 1 + th.H + self._CHIP_GAP // 2                        # 隔断中部起 (透明区无内容)
+            band = lower.crop((0, band_y, lower.width, lower.height))
+            cap.alpha_composite(band, (0, band_y))
         if abs(s - 1) > 1e-3:          # 出现/消失时整体缩放 (只有前 0.18s 和最后 0.2s)
             cap = cap.resize((max(1, round(cap.width * s)), max(1, round(cap.height * s))), Image.LANCZOS)
         img = self._shadow_img(max(int(th.H), round(w)), max(int(th.H), round(shell_h)), self.mode).copy()
