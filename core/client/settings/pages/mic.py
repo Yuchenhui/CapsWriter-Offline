@@ -144,15 +144,15 @@ def _pre_roll_sec_row(parent, pal, ctx):
 
 
 def merge_order(visible: list, saved: list) -> list:
-    """拖拽后的新顺序 + saved 里当前没插着的设备.
-    本地改 2026-11-08: 原来按 saved 原索引 insert 回前部 —— saved 里躺着的幽灵项
-    (匹配不到任何在线设备的名字, 如 'Wireless Mic Rx') 会把用户刚拖到第一的在线设备
-    挤到后面 (表现为"拖好的顺序保存后又变了"). 改为: 在线设备完全按拖拽结果,
-    离线项原样追加到尾部 (保住"没插着的设备别丢"的初衷, 但不再抢占优先级)"""
+    """拖拽后的新顺序 + 当前没插着的设备 (按 saved 原位置插回).
+    本地改 2026-11-08 回退: 曾改成"离线项追加尾部", 但没插上的设备 (如公司的无线麦)
+    插上后应按原优先级排在前部生效, 不是垫底 —— 原逻辑才是对的, 恢复.
+    注: 设置页只列在线设备, 离线项不显示; watch 的 pick_preferred 匹配不到会跳过,
+    插上后自动按此处保留的位次生效"""
     out = list(visible)
-    for p in saved:
-        if p not in out:
-            out.append(p)
+    for i, p in enumerate(saved):
+        if not any(p in n for n in visible):
+            out.insert(min(i, len(out)), p)
     return out
 
 
