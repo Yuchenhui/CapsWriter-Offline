@@ -37,7 +37,7 @@ def build(parent, pal, ctx):
     _priority_section(f, pal, ctx, devs)
 
     gain_dev = (live[0] if live is not None else cur)
-    gain_name = (live[1] if live is not None else '')
+    gain_name = (mic_select.display_name(live[1]) if live is not None else '')
     section(f, pal, f'当前设备增益 · {gain_name}' if gain_name else '当前设备增益').pack(anchor='w', pady=(22, 8))
     c = Card(f, pal)
     c.pack(fill='x')

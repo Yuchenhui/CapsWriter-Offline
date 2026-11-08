@@ -156,7 +156,7 @@ class CalibWindow:
         self._clear()
         self.win.geometry(f'{WIN_W}x600')      # 成绩表 6 行 + 提示 + 按钮, 比校准页高
         tk.Label(b, text='校准完成', font=font(16, True), bg=p.bg, fg=p.fg).pack(anchor='w')
-        tk.Label(b, text=res['device'], font=font(10), bg=p.bg, fg=p.muted, anchor='w').pack(anchor='w', pady=(4, 0))
+        tk.Label(b, text=_dev_label(res['device']), font=font(10), bg=p.bg, fg=p.muted, anchor='w').pack(anchor='w', pady=(4, 0))
         if res.get('undone'):
             gain_text, gain_fg = f'增益已恢复为校准前的 {_fmt(res["gain_now"])} dB', p.muted
         elif res.get('applied'):
