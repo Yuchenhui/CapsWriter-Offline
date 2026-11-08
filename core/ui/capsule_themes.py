@@ -10,7 +10,6 @@ Pillow + Tk, 故沿用 layered_renderer 的做法: Pillow 3 倍超采样画 RGBA
 from __future__ import annotations
 
 import math
-import re
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
@@ -590,11 +589,10 @@ class Capsule:
 
     # -- 麦克风区 (本地改 2026-11-08) ----------------------------------------
     def _fit_mic_text(self, name: str) -> str:
-        """设备名展示版: 去掉 'Microphone (...)' / '麦克风 (…)' 外壳, 超宽截断加省略号; 空串 = 不显示"""
-        name = (name or '').strip()
-        m = re.match(r'^(?:麦克风|麥克風|Microphone|マイク)\s*[（(](.+)[)）]$', name)
-        if m:
-            name = m.group(1).strip()
+        """设备名展示版: 去 'Microphone (…)' / '麦克风 (…)' 外壳 (mic_select.display_name),
+        超宽截断加省略号; 空串 = 不显示"""
+        from core.client.audio.mic_select import display_name
+        name = display_name(name)
         f = self._chip_font
         if f.getlength(name) / U() <= self._CHIP_TEXT_MAX:
             return name

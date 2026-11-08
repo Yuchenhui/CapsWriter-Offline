@@ -31,6 +31,12 @@ def _db(v: float) -> float:
     return 20 * math.log10(max(v, 1e-6))
 
 
+def _dev_label(name: str) -> str:
+    """设备展示名: 去 'Microphone (…)' 外壳, 只留型号 (本地改 2026-11-08, 与 mic_select.display_name 同规则)"""
+    from core.client.audio.mic_select import display_name
+    return display_name(name)
+
+
 def _clip(text: str, measure, limit: int) -> str:
     """按真实字体度量截断 (不是按字数猜), 免得表格最后一列顶出卡片"""
     text = str(text)
@@ -242,7 +248,7 @@ class CalibWindow:
         if sig != self.sig:
             self.sig = sig
             self.lb_step.configure(text=f"{snap['idx'] + 1} / {snap['total']}")
-            self.lb_dev.configure(text=f"正在录 · {snap['dev_name']}")
+            self.lb_dev.configure(text=f"正在录 · {_dev_label(snap['dev_name'])}")
             self.lb_note.configure(text=snap['note'], fg=p.accent if snap['note'] else p.muted)
             for i, d in enumerate(self.dots):
                 d.configure(image=_dot_image(p, i < snap['idx'], i == snap['idx']))

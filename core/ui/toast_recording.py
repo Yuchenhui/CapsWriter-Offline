@@ -23,7 +23,6 @@ import math
 import time
 import random
 import os
-import re
 import tkinter as tk
 from core.ui.layered_renderer import LayeredRenderer, theme
 from typing import Optional, Callable, Union
@@ -467,10 +466,8 @@ class ToastWindowRecording:
     def _mic_fit(self, name: str, limit: int) -> str:
         """麦克风名展示版 (本地改 2026-11-08): 去 'Microphone (…)' / '麦克风 (…)' 外壳,
         截断到 limit 像素 (预留时传上限, 展示时传预留宽); 空串 = 不显示"""
-        name = (name or '').strip()
-        m = re.match(r'^(?:麦克风|麥克風|Microphone|マイク)\s*[（(](.+)[)）]$', name)
-        if m:
-            name = m.group(1).strip()
+        from core.client.audio.mic_select import display_name
+        name = display_name(name)
         lim = limit - 2
         out = name
         while out and self._mic_measure(out + '…') > lim:
