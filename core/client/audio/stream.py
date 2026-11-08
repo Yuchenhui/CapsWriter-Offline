@@ -234,16 +234,27 @@ class AudioStreamManager:
             self._channels = min(2, device['max_input_channels'])
             device_name = device.get('name', '未知设备')
             self.device_name = device_name   # 本地改: 记住真正在录的设备, 校准/设置页按它显示
+            # 本地改 2026-11-08: kind='input' 取的是 MME 名, 被 PortAudio 硬截到 31 字符
+            # ('Microphone (ATK N9V2 ULTIMATE d', 右括号都丢了). 给胶囊/UI 发 WASAPI 全名:
+            # 用截断名反查 Windows 端点友好名, 查不到才退回 MME 名 (display_name 现在也能剥截断名)
+            full = device_name
+            try:
+                from core.client.audio import mic_select
+                hit = mic_select.resolve_capture(device_name)
+                if hit:
+                    full = hit[1]
+            except Exception:
+                pass
             try:
                 from core.ui.recording_level import set_device_name
-                set_device_name(device_name)   # 本地改 2026-11-08: 供录音胶囊「麦克风区」展示
+                set_device_name(full)   # 本地改 2026-11-08: 供录音胶囊「麦克风区」展示
             except Exception:
                 pass
             console.print(
-                f'使用默认音频设备：[italic]{device_name}，声道数：{self._channels}',
+                f'使用默认音频设备：[italic]{full}，声道数：{self._channels}',
                 end='\n\n'
             )
-            logger.info(f"找到音频设备: {device_name}, 声道数: {self._channels}")
+            logger.info(f"找到音频设备: {full}, 声道数: {self._channels}")
         except UnicodeDecodeError:
             logger.warning("无法获取音频设备名称（编码问题）")
         except sd.PortAudioError:
