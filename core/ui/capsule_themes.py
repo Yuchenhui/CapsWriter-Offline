@@ -10,6 +10,7 @@ Pillow + Tk, 故沿用 layered_renderer 的做法: Pillow 3 倍超采样画 RGBA
 from __future__ import annotations
 
 import math
+import re
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
@@ -552,9 +553,25 @@ APPEAR, TO_PROC, SHRINK, POP, HOLD, FADE = 0.18, 0.22, 0.26, 0.45, 0.8, 0.2
 class Capsule:
     """每帧给出整窗图像. 调用方只需报告模式 (recording / processing / done) 与 0-1 的音量."""
 
-    def __init__(self, theme):
+    # 本地改 2026-11-08: 右侧「麦克风区」——小圆角子胶囊 (mic 图标 + 设备名小字), 录音/整理两态显示,
+    # 完成态随收缩动画塌缩淡出. _CHIP_GAP = 与主题内容的间距; 建窗后宽度固定, 换名只换字不换宽
+    _CHIP_GAP = 10
+    _CHIP_TEXT_MAX = 190     # 设备名展示宽上限 (逻辑像素), 超出截断加省略号
+
+    def __init__(self, theme, mic_label: str = ''):
         self.th = theme
-        self.CW, self.CH = int(math.ceil(theme.MAX_W)) + 2, int(theme.H) + 2    # 胶囊画板 (四周留 1px 给抗锯齿)
+        # 本地改 2026-11-08: 麦克风区尺寸 (无字/无等宽字体时全为 0 = 不预留)
+        self._chip_font = mono_font(11)
+        self.mic_label = ''
+        self._chip_w = 0          # 子胶囊自身宽
+        self._chip_area = 0       # 额外总宽 = 间距 + 子胶囊
+        if mic_label and self._chip_font is not None:
+            text = self._fit_mic_text(str(mic_label))
+            if text:
+                self.mic_label = text
+                self._chip_w = 8 + 11 + 6 + self._chip_font.getlength(text) / U() + 8
+                self._chip_area = self._CHIP_GAP + self._chip_w
+        self.CW, self.CH = int(math.ceil(theme.MAX_W)) + 2 + self._chip_area, int(theme.H) + 2    # 胶囊画板 (四周留 1px 给抗锯齿)
         self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距), 逻辑像素
         # 屏幕像素 (按 SCALE): 调用方据此建窗 —— 窗口 = 胶囊 (cap_w x cap_h) + 四周 margin_px
         self.win_w, self.win_h, self.margin_px = px(self.W), px(self.H), px(MARGIN)
@@ -570,6 +587,43 @@ class Capsule:
     def set_mode(self, mode: str, now: float) -> None:
         if mode != self.mode:
             self.mode, self.since = mode, now
+
+    # -- 麦克风区 (本地改 2026-11-08) ----------------------------------------
+    def _fit_mic_text(self, name: str) -> str:
+        """设备名展示版: 去掉 'Microphone (...)' / '麦克风 (…)' 外壳, 超宽截断加省略号; 空串 = 不显示"""
+        name = (name or '').strip()
+        m = re.match(r'^(?:麦克风|麥克風|Microphone|マイク)\s*[（(](.+)[)）]$', name)
+        if m:
+            name = m.group(1).strip()
+        f = self._chip_font
+        if f.getlength(name) / U() <= self._CHIP_TEXT_MAX:
+            return name
+        out = name
+        while out and f.getlength(out + '…') / U() > self._CHIP_TEXT_MAX:
+            out = out[:-1]
+        return out + '…'
+
+    def set_mic_label(self, text: str) -> None:
+        """更新设备名 (每帧可调; 预留宽度固定, 变长自动截断到预留宽). 无预留区时 no-op"""
+        if self._chip_area <= 0:
+            return
+        t = self._fit_mic_text(str(text or ''))
+        if t != self.mic_label:
+            self.mic_label = t
+
+    def _paint_chip(self, pen: Pen, x: float, cy: float, fade: float, width: float = 0.0) -> None:
+        """在 (x, cy) 左缘画麦克风子胶囊: fg 8% 底 + mic 图标 + 11px 设备名. fade=透明度,
+        width>0 时按给定可见宽画 (完成态收缩用, 内容超宽部分被外壳蒙版裁掉)"""
+        if self._chip_area <= 0 or fade <= 0.01:
+            return
+        w = self._chip_w if width <= 0 else min(width, self._chip_w)
+        if w < 12:
+            return
+        fg = getattr(self.th, 'FG', None) or getattr(self.th, 'ACCENT', None) or '#ffffff'
+        h = max(18, self.th.H - 16)
+        pen.rrect(x, cy - h / 2, x + w, cy + h / 2, h / 2, fill=rgba(fg, 0.08 * fade))
+        mic(pen, x + 8 + 5.5, cy, 11, rgba(fg, 0.72 * fade), stroke=2)
+        pen.text(x + 8 + 11 + 6, cy, self.mic_label, self._chip_font, rgba(fg, 0.78 * fade))
 
     def interval_ms(self, now: float) -> int:
         """帧间隔 16ms (60fps; 需胶囊显示期间 timeBeginPeriod(1), 否则 Tk 定时被拖到 15.6ms 刻度只有 ~38fps).
@@ -631,20 +685,29 @@ class Capsule:
             a, s = 1 - k, 1 - 0.1 * k
 
         inner = Pen(self.CW, self.CH)
+        chip, gap, mid = self._chip_area, self._CHIP_GAP, y0 + th.H / 2   # 本地改 2026-11-08: 麦克风区
         if self.mode == 'recording':
-            w = th.width('recording')
+            base = th.width('recording')
+            w = base + chip
             th.paint_recording(inner, x0(w), y0, t, self.level, 1.0)
+            self._paint_chip(inner, x0(w) + base + gap, mid, 1.0)
         elif self.mode == 'processing':
             m = ease_in_out(el / TO_PROC)
-            w = th.width('recording') + (th.width('processing') - th.width('recording')) * m
+            base = th.width('recording') + (th.width('processing') - th.width('recording')) * m
+            w = base + chip
             if m < 1:
                 th.paint_recording(inner, x0(w), y0, t, self.level, 1 - m, flatten=m)
             th.paint_processing(inner, x0(w), y0, t, m)
+            self._paint_chip(inner, x0(w) + base + gap, mid, 1.0)
         else:   # done: 先缩成圆 (整理内容淡出), 再弹对勾
             m = ease_in_out(el / SHRINK)
-            w = th.width('processing') + (th.H - th.width('processing')) * m
+            chip_t = chip * (1 - m)   # 本地改 2026-11-08: 麦克风区随收缩塌缩, 与整理内容同步淡出
+            w = th.width('processing') + chip_t + (th.H - th.width('processing')) * m
             if m < 1:
-                th.paint_processing(inner, x0(w), y0, t, 1 - ease_out(m / 0.6))   # 缩到 60% 前淡完
+                fade = 1 - ease_out(m / 0.6)
+                th.paint_processing(inner, x0(w), y0, t, fade)   # 缩到 60% 前淡完
+                self._paint_chip(inner, x0(w) + th.width('processing') + gap, mid, fade,
+                                 width=max(0.0, chip_t - gap))
             if el > SHRINK:
                 if getattr(self, 'warning', False):
                     # Use the same terminal animation as success, with an amber !.

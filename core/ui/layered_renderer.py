@@ -169,8 +169,9 @@ class LayeredRenderer:
             x = cx + dx * r * 2
             d.rounded_rectangle((x - rr, top - rr, x + rr, bottom + rr), radius=rr, fill=col)
 
-    def render(self, prims, alpha):
-        """画一帧. prims = [(x1, y1, x2, y2, 线宽, '#rrggbb')] 胶囊局部坐标的圆头线段; alpha = 整窗淡入 0~1"""
+    def render(self, prims, alpha, texts=()):
+        """画一帧. prims = [(x1, y1, x2, y2, 线宽, '#rrggbb')] 胶囊局部坐标的圆头线段; alpha = 整窗淡入 0~1.
+        texts (本地改 2026-11-08): [(x, y, 字符串, PIL 字体, '#rrggbb')] 静态文字 (ULW 窗口画布文字不可见, 走 PIL)"""
         SS, M = self.SS, self.M
         img = self.base.copy()
         d = self.ImageDraw.Draw(img)
@@ -184,6 +185,8 @@ class LayeredRenderer:
             d.line((p1, p2), fill=c, width=max(1, round(w * SS)))
             for px, py in (p1, p2):   # 圆头
                 d.ellipse((px - r, py - r, px + r, py + r), fill=c)
+        for tx, ty, s, f, c in texts:   # 本地改 2026-11-08
+            d.text(((tx + M) * SS, (ty + M) * SS), s, font=f, fill=c, anchor='lm')
         # 本地改: 先预乘再 reduce (整数倍盒式缩小): LANCZOS 1.15ms -> reduce ~0.4ms/帧 (实测整帧 1.59 -> 0.57ms),
         # 且预乘后再缩小, 边缘不会把透明像素的黑色平均进来. UpdateLayeredWindow 正好要预乘 alpha 的 BGRA
         self._present(img.convert('RGBa').reduce(SS).tobytes('raw', 'BGRa'), alpha)

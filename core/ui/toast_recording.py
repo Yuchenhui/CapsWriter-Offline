@@ -23,8 +23,9 @@ import math
 import time
 import random
 import os
+import re
 import tkinter as tk
-from core.ui.layered_renderer import LayeredRenderer
+from core.ui.layered_renderer import LayeredRenderer, theme
 from typing import Optional, Callable, Union
 
 from .toast_constants import DEFAULT_FONT_FAMILY
@@ -174,6 +175,15 @@ def _read_mic_level() -> tuple:
         return 0.0, False
 
 
+def _read_mic_name() -> str:
+    """读取当前麦克风设备名 (开流时由 stream 写入总线); 不可用返回空串 (本地改 2026-11-08)。"""
+    try:
+        from .recording_level import get_device_name
+        return get_device_name() or ''
+    except Exception:
+        return ''
+
+
 def _target_alpha() -> float:
     """胶囊整体不透明度
 
@@ -272,6 +282,8 @@ _DOT_R = 0                 # 本地改: 去掉 REC 红点 (原 4.5)
 _GAP_DOT_TEXT = 0          # 本地改: 原 12, 随红点一起去掉
 _GAP_TEXT_WAVE = 20
 
+_MIC_NAME_MAX = 190        # 本地改 2026-11-08: 经典样式麦克风名小字宽上限 (像素, 超出截断加省略号)
+
 _BOTTOM_MARGIN = 16        # 胶囊底边距任务栏（工作区底部）的像素间距
 
 # 「正在转文字」处理态（松开按键后等待识别结果期间）
@@ -338,7 +350,9 @@ class ToastWindowRecording:
         from core.ui import capsule_themes
         capsule_themes.set_scale(_monitor_scale())        # 按鼠标所在屏的物理像素密度缩放, 两块屏上看着一样大
         self._theme = capsule_themes.get(_capsule_theme_name())
-        self._cap = capsule_themes.Capsule(self._theme) if self._theme is not None else None
+        # 本地改 2026-11-08: 主题胶囊右侧预留「麦克风区」(设备名小字); hint/bwarn 一次性胶囊带文案, 不留
+        self._cap = (capsule_themes.Capsule(self._theme, mic_label=_read_mic_name())
+                     if self._theme is not None and not self._text.strip() else None)
         self._themed = None
         self._last_t = None
 
@@ -354,8 +368,22 @@ class ToastWindowRecording:
         from tkinter import font as tkfont
         self._font = tkfont.Font(family=self._font_family, size=self._font_size)
         text_w = self._font.measure(self._text)
+        # 本地改 2026-11-08: 经典样式在声波右侧预留「麦克风名」小字区; 只给无文案的录音胶囊预留,
+        # 建窗后宽度固定 —— 名字晚到 (冷启动) 只换字不换宽, 换名超宽自动截断.
+        # 经典样式视觉全是原始像素 (声波点/短横), 字号也按像素: Tk 负值字号 = 像素, PIL 同值, 两路一致
+        self._scale = capsule_themes.SCALE   # 提前取好 (_warn_font 要用; 后面那行赋的是同一个值)
+        self._mic_font = tkfont.Font(family=self._font_family, size=-12)
+        f = self._warn_font(12)   # ULW 窗口 canvas 文字不可见, 走 PIL 画; 无 truetype 时为 None = 不画
+        self._mic_pil_font = f if getattr(f, 'path', None) else None
+        self._mic_color = '#d6dbe4' if theme()['bottom'][0] < 128 else '#2f3a4c'   # 跟经典玻璃底明暗取字色
+        # 预留时按上限 fit 出展示串存好; 绘制时总线名字没变就原样画 (重 fit 会因 '…' 宽度二次截断), 变了才按预留宽重 fit
+        self._mic_raw = '' if text_w else _read_mic_name()
+        self._mic_text = self._mic_fit(self._mic_raw, _MIC_NAME_MAX) if self._mic_raw else ''
+        self._mic_reserved_w = (round(self._mic_measure(self._mic_text)) + 2) if self._mic_text else 0
+        self._mic_canvas_drawn = None
         self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
-                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
+                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W
+                            + ((14 + self._mic_reserved_w) if self._mic_reserved_w else 0) + _PAD_X))
         self._h = int(_PILL_H)
         if self._cap is not None:
             self._w, self._h = self._cap.cap_w, self._cap.cap_h
@@ -402,6 +430,7 @@ class ToastWindowRecording:
         self._dot_cx = _PAD_X + _DOT_R
         self._text_x = self._dot_cx + _DOT_R + _GAP_DOT_TEXT
         self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
+        self._mic_x = self._wave_x0 + _WAVE_W + 14   # 本地改 2026-11-08: 麦克风名小字左缘
         self._mid_y = self._h / 2
 
         self.window.deiconify()
@@ -429,6 +458,25 @@ class ToastWindowRecording:
         self._tick()
 
     # -- 绘制 --------------------------------------------------------------
+    def _mic_measure(self, s: str) -> float:
+        """麦克风名度量: 有 PIL 字体用 getlength (ULW 绘制用它), 否则退 Tk measure. 都是 11 原始像素"""
+        if self._mic_pil_font is not None:
+            return self._mic_pil_font.getlength(s)
+        return self._mic_font.measure(s)
+
+    def _mic_fit(self, name: str, limit: int) -> str:
+        """麦克风名展示版 (本地改 2026-11-08): 去 'Microphone (…)' / '麦克风 (…)' 外壳,
+        截断到 limit 像素 (预留时传上限, 展示时传预留宽); 空串 = 不显示"""
+        name = (name or '').strip()
+        m = re.match(r'^(?:麦克风|麥克風|Microphone|マイク)\s*[（(](.+)[)）]$', name)
+        if m:
+            name = m.group(1).strip()
+        lim = limit - 2
+        out = name
+        while out and self._mic_measure(out + '…') > lim:
+            out = out[:-1]
+        return (out + '…') if out != name else out
+
     def _draw_static(self) -> None:
         """绘制不变的部分：圆角胶囊底（含玻璃细边）+ 文案"""
         # 本地改: 不再画亮色描边 (Tk 线条无抗锯齿, 深底上一圈亮边锯齿明显);
@@ -527,6 +575,7 @@ class ToastWindowRecording:
         # hint 复用主题的 done 绿对勾弹出动画, 播完 finished() 自毁 (2026-10-15)
         theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done', 'hint': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
+        self._themed.set_mic_label(_read_mic_name())   # 本地改 2026-11-08: 每帧读总线, 冷启动晚到也能显示
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh and self._applied_mode != 'waiting' else 0.0)
         if self._applied_mode == 'waiting':
@@ -609,6 +658,7 @@ class ToastWindowRecording:
         if self._ulw is None:
             self.canvas.delete('all')
             self._draw_static()
+            self._mic_canvas_drawn = None   # 本地改 2026-11-08: delete('all') 把麦克风名也清了, 下帧重画
         # 超时自关兜底(服务端假死/静默丢结果):一次性 after 定时,不受丢帧漂移
         self.window.after(self._proc_timeout_ms, self._on_proc_timeout)
 
@@ -696,12 +746,27 @@ class ToastWindowRecording:
             prims = [(x1, y1, x2, y2, w, self._lerp(c, '#34c759', strength))
                      for x1, y1, x2, y2, w, c in prims]
 
+        # 本地改 2026-11-08: 声波右侧的麦克风名 —— hint/warn/done 态让位; 每帧读总线,
+        # 名字与建窗时相同直接画预 fit 的展示串, 不同 (冷启动晚到/换设备) 才按预留宽重 fit
+        name = ''
+        if self._applied_mode not in ('warn', 'hint', 'done') and self._mic_reserved_w:
+            raw = _read_mic_name()
+            name = self._mic_text if raw == self._mic_raw else self._mic_fit(raw, self._mic_reserved_w)
+
         if self._ulw is not None:
-            self._ulw.render(prims, self._alpha)
+            texts = ((self._mic_x, self._mid_y, name, self._mic_pil_font, self._mic_color),) \
+                if name and self._mic_pil_font is not None else ()
+            self._ulw.render(prims, self._alpha, texts)
         else:
             self.canvas.delete('dyn')
             for x1, y1, x2, y2, w, c in prims:
                 self.canvas.create_line(x1, y1, x2, y2, width=w, fill=c, capstyle=tk.ROUND, tags='dyn')
+            if name != self._mic_canvas_drawn:   # canvas 退路: Tk 文字, 变了才重画
+                self.canvas.delete('mic')
+                if name:
+                    self.canvas.create_text(self._mic_x, self._mid_y, text=name, font=self._mic_font,
+                                            fill=self._mic_color, tags='mic', anchor='w')
+                self._mic_canvas_drawn = name
 
         self._after_id = self.window.after(_PROC_FRAME_MS if processing else _FRAME_MS, self._tick)
 

@@ -234,6 +234,11 @@ class AudioStreamManager:
             self._channels = min(2, device['max_input_channels'])
             device_name = device.get('name', '未知设备')
             self.device_name = device_name   # 本地改: 记住真正在录的设备, 校准/设置页按它显示
+            try:
+                from core.ui.recording_level import set_device_name
+                set_device_name(device_name)   # 本地改 2026-11-08: 供录音胶囊「麦克风区」展示
+            except Exception:
+                pass
             console.print(
                 f'使用默认音频设备：[italic]{device_name}，声道数：{self._channels}',
                 end='\n\n'

@@ -8,6 +8,10 @@
 
 写入：core.client.audio.stream._audio_callback（每 ~50ms 一次）
 读取：core.ui.toast_recording.ToastWindowRecording._tick（每帧）
+
+本地改 2026-11-08: 同一总线再带一路设备名——开流时写入当前麦克风名
+（PortAudio 原名），录音胶囊读取后在右侧「麦克风区」展示。名字无时效性，
+不随 reset() 清除。
 """
 
 from __future__ import annotations
@@ -18,6 +22,20 @@ import threading
 _lock = threading.Lock()
 _level = 0.0
 _ts = 0.0
+_device = ''   # 本地改 2026-11-08: 最近一次开流的麦克风设备名 (PortAudio 原名)
+
+
+def set_device_name(name: str) -> None:
+    """写入当前（最近一次）开流的麦克风设备名。展示端自行缩短/去外壳。"""
+    global _device
+    with _lock:
+        _device = str(name or '')
+
+
+def get_device_name() -> str:
+    """读取最近一次开流的麦克风设备名；从未成功开过流则空串。"""
+    with _lock:
+        return _device
 
 
 def set_level(level: float) -> None:
