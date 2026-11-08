@@ -74,19 +74,22 @@ class ShortcutEventHandler:
         else:
             task.finish()
 
-    def _handle_short_press(self, key_name, task, emulate: bool = True) -> None:
-        """处理短按情况. emulate=False: 自动重复中断判为松开后, 重复恢复又随即松开的"短按"
-        (09-26 19:45 实例), 用户并没有按 Alt, 不补发"""
+    def _handle_short_press(self, key_name: str, task, emulate: bool = True) -> None:
+        """处理短按情况.
+
+        本地改 2026-11-08: 不再补发按键. 原来短按取消后 emulate 补发一次按下+松开
+        (本意是不吞用户按键), 但补发的键又被自家钩子捕成第二次按下 -> 录音再次触发,
+        表现为「没说话就松开, 卡住一会儿, 必须再敲一下才继续」(日志实例:
+        19:28:18 短按 0.14s -> 取消 -> 补发 -> 0.36s 后又开录 17s).
+        RAlt 的默认行为 (切窗口菜单) 在按住说话场景没有用途, 吞掉即消化.
+
+        emulate 参数保留 (自动重复中断场景由调用方显式传 False), 但已不驱动补发.
+        """
         cancel_start = time.perf_counter()
         task.cancel()
         cancel_time = (time.perf_counter() - cancel_start) * 1000
         logger.debug(f"[{key_name}] task.cancel() 耗时: {cancel_time:.2f}ms")
-
-        if task.shortcut.suppress and not emulate:
-            logger.info(f"[{key_name}] 自动重复中断后的短按, 不补发按键")
-        elif task.shortcut.suppress:
-            logger.debug(f"[{key_name}] 安排异步补发按键")
-            self.pool.submit(self.emulator.emulate_key, key_name)
+        logger.debug(f"[{key_name}] 短按取消, 不补发按键 (本地改 2026-11-08: 补发会被钩子捕成二次触发)")
 
     def _count_down(self, task) -> None:
         """倒计时（单击模式）"""
