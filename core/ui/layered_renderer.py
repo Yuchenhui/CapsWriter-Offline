@@ -186,7 +186,7 @@ class LayeredRenderer:
             for px, py in (p1, p2):   # 圆头
                 d.ellipse((px - r, py - r, px + r, py + r), fill=c)
         for tx, ty, s, f, c in texts:   # 本地改 2026-11-08
-            d.text(((tx + M) * SS, (ty + M) * SS), s, font=f, fill=c, anchor='lm')
+            d.text(((tx + M) * SS, (ty + M) * SS), s, font=f, fill=c, anchor='mm')
         # 本地改: 先预乘再 reduce (整数倍盒式缩小): LANCZOS 1.15ms -> reduce ~0.4ms/帧 (实测整帧 1.59 -> 0.57ms),
         # 且预乘后再缩小, 边缘不会把透明像素的黑色平均进来. UpdateLayeredWindow 正好要预乘 alpha 的 BGRA
         self._present(img.convert('RGBa').reduce(SS).tobytes('raw', 'BGRa'), alpha)

@@ -282,6 +282,7 @@ _GAP_DOT_TEXT = 0          # 本地改: 原 12, 随红点一起去掉
 _GAP_TEXT_WAVE = 20
 
 _MIC_NAME_MAX = 190        # 本地改 2026-11-08: 经典样式麦克风名小字宽上限 (像素, 超出截断加省略号)
+_MIC_ROW_H = 20            # 本地改 2026-11-08: 麦克风行高 (竖排: 设备名放声波下方一行)
 
 _BOTTOM_MARGIN = 16        # 胶囊底边距任务栏（工作区底部）的像素间距
 
@@ -367,9 +368,9 @@ class ToastWindowRecording:
         from tkinter import font as tkfont
         self._font = tkfont.Font(family=self._font_family, size=self._font_size)
         text_w = self._font.measure(self._text)
-        # 本地改 2026-11-08: 经典样式在声波右侧预留「麦克风名」小字区; 只给无文案的录音胶囊预留,
-        # 建窗后宽度固定 —— 名字晚到 (冷启动) 只换字不换宽, 换名超宽自动截断.
-        # 经典样式视觉全是原始像素 (声波点/短横), 字号也按像素: Tk 负值字号 = 像素, PIL 同值, 两路一致
+        # 本地改 2026-11-08: 经典样式麦克风名放下方一行 (竖排, 与主题胶囊一致) ——
+        # 横排在右侧把胶囊撑到 280+px; 竖排只按声波宽度 (16+76+16=108) 定宽, 名字居中放下行.
+        # 只给无文案的录音胶囊预留; 名字晚到 (冷启动) 只换字不换宽, 换名超宽按预留宽截断
         self._scale = capsule_themes.SCALE   # 提前取好 (_warn_font 要用; 后面那行赋的是同一个值)
         self._mic_font = tkfont.Font(family=self._font_family, size=-12)
         f = self._warn_font(12)   # ULW 窗口 canvas 文字不可见, 走 PIL 画; 无 truetype 时为 None = 不画
@@ -380,10 +381,10 @@ class ToastWindowRecording:
         self._mic_text = self._mic_fit(self._mic_raw, _MIC_NAME_MAX) if self._mic_raw else ''
         self._mic_reserved_w = (round(self._mic_measure(self._mic_text)) + 2) if self._mic_text else 0
         self._mic_canvas_drawn = None
+        self._mic_row = _MIC_ROW_H if self._mic_text else 0   # 本地改 2026-11-08: 麦克风行高 (0 = 不显示)
         self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
-                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W
-                            + ((14 + self._mic_reserved_w) if self._mic_reserved_w else 0) + _PAD_X))
-        self._h = int(_PILL_H)
+                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
+        self._h = int(_PILL_H + self._mic_row)   # 竖排: 胶囊加高一行放设备名
         if self._cap is not None:
             self._w, self._h = self._cap.cap_w, self._cap.cap_h
 
@@ -429,7 +430,8 @@ class ToastWindowRecording:
         self._dot_cx = _PAD_X + _DOT_R
         self._text_x = self._dot_cx + _DOT_R + _GAP_DOT_TEXT
         self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
-        self._mic_x = self._wave_x0 + _WAVE_W + 14   # 本地改 2026-11-08: 麦克风名小字左缘
+        self._mic_x = self._w / 2          # 本地改 2026-11-08: 竖排 - 设备名水平居中
+        self._mic_y = _PILL_H + self._mic_row / 2   # 竖排 - 声波下方一行的中线
         self._mid_y = self._h / 2
 
         self.window.deiconify()
@@ -751,7 +753,7 @@ class ToastWindowRecording:
             name = self._mic_text if raw == self._mic_raw else self._mic_fit(raw, self._mic_reserved_w)
 
         if self._ulw is not None:
-            texts = ((self._mic_x, self._mid_y, name, self._mic_pil_font, self._mic_color),) \
+            texts = ((self._mic_x, self._mic_y, name, self._mic_pil_font, self._mic_color),) \
                 if name and self._mic_pil_font is not None else ()
             self._ulw.render(prims, self._alpha, texts)
         else:
@@ -761,8 +763,8 @@ class ToastWindowRecording:
             if name != self._mic_canvas_drawn:   # canvas 退路: Tk 文字, 变了才重画
                 self.canvas.delete('mic')
                 if name:
-                    self.canvas.create_text(self._mic_x, self._mid_y, text=name, font=self._mic_font,
-                                            fill=self._mic_color, tags='mic', anchor='w')
+                    self.canvas.create_text(self._mic_x, self._mic_y, text=name, font=self._mic_font,
+                                            fill=self._mic_color, tags='mic', anchor='center')
                 self._mic_canvas_drawn = name
 
         self._after_id = self.window.after(_PROC_FRAME_MS if processing else _FRAME_MS, self._tick)
