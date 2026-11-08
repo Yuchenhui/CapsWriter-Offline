@@ -573,11 +573,12 @@ class Capsule:
         self._chip_row = 0
         self._chip_row_w = 0      # 下胶囊宽 (图标+字+两侧内边距), 不超过上胶囊宽
         if mic_label and self._chip_font is not None:
-            text = self._fit_mic_text(str(mic_label))
+            text = self._fit_mic_text(str(mic_label), theme.MAX_W * 1.2 - 11 - 5 - self._CHIP_PAD * 2)
             if text:
                 self.mic_label = text
                 self._chip_row = self._CHIP_ROW
-                self._chip_row_w = min(theme.MAX_W, 11 + 5 + self._chip_font.getlength(text) / U() + self._CHIP_PAD * 2)
+                # 药丸宽 = 图标 + 字 + 两侧内边距; 上胶囊宽的 1.2 倍封顶 (小主题也能放全名, 视觉可接受)
+                self._chip_row_w = min(theme.MAX_W * 1.2, 11 + 5 + self._chip_font.getlength(text) / U() + self._CHIP_PAD * 2)
         self.CW = int(math.ceil(max(theme.MAX_W, self._chip_row_w))) + 2   # 胶囊画板宽 (四周留 1px 给抗锯齿)
         self.CH = int(theme.H) + 2 + (self._chip_row + self._CHIP_GAP if self._chip_row else 0)   # 画板高 = 主题 + 隔断 + 下胶囊
         self.W, self.H = self.CW - 2 + 2 * MARGIN, self.CH - 2 + 2 * MARGIN      # 整窗 (含阴影边距), 逻辑像素
@@ -616,13 +617,14 @@ class Capsule:
         """更新设备名 (每帧可调; 首次出现时按需建下胶囊). 无等宽字体时不显示"""
         if self._chip_font is None:
             return
-        t = self._fit_mic_text(str(text or '')) if text else ''
+        t = (self._fit_mic_text(str(text), self.th.MAX_W * 1.2 - 11 - 5 - self._CHIP_PAD * 2)
+             if text else '')
         if t == self.mic_label:
             return
         self.mic_label = t
         if t and not self._chip_row:      # 冷启动晚到: 名字第一次出现, 建下胶囊
             self._chip_row = self._CHIP_ROW
-            self._chip_row_w = min(self.th.MAX_W, 11 + 5 + self._chip_font.getlength(t) / U() + self._CHIP_PAD * 2)
+            self._chip_row_w = min(self.th.MAX_W * 1.2, 11 + 5 + self._chip_font.getlength(t) / U() + self._CHIP_PAD * 2)
             self._resize()
         elif not t and self._chip_row:    # 名字消失 (换设备瞬间)
             self._chip_row, self._chip_row_w = 0, 0
@@ -638,7 +640,8 @@ class Capsule:
 
     def _paint_chip(self, pen: Pen, fade: float, width: float = 0.0) -> None:
         """本地改 2026-11-08 双胶囊: 在画板中下方画独立小药丸 (主题底 + 前景色淡描边),
-        mic 图标 + 设备名水平居中. width>0 时按给定可见宽截断 (完成态收缩用)"""
+        mic 图标 + 设备名水平居中. width>0 时按给定可见宽截断 (完成态收缩用);
+        常态文字已在建胶囊时按可用宽 fit 好, 不再截"""
         if self._chip_row <= 0 or fade <= 0.01 or not self.mic_label:
             return
         fg = getattr(self.th, 'FG', None) or getattr(self.th, 'ACCENT', None) or '#ffffff'
@@ -646,13 +649,14 @@ class Capsule:
         row_w = self._chip_row_w if width <= 0 else min(width, self._chip_row_w)
         top = 1 + self.th.H + self._CHIP_GAP
         cx, cy = self.CW / 2, top + self._chip_row / 2
-        icon_w, gap, pad = 11, 5, self._CHIP_PAD
-        avail = row_w - pad * 2 - icon_w - gap          # 文字可用宽 (常态也按它截, 不放宽药丸)
+        icon_w, gap = 11, 5
         text = self.mic_label
-        while text and self._chip_font.getlength(text + '…') / U() > avail:
-            text = text[:-1]
-        if text != self.mic_label:
-            text = text.rstrip() + '…'
+        if width > 0:                    # 收缩中: 可见宽变窄, 文本按比例截断
+            avail = row_w - self._CHIP_PAD * 2 - icon_w - gap
+            while text and self._chip_font.getlength(text + '…') / U() > avail:
+                text = text[:-1]
+            if text != self.mic_label:
+                text = text.rstrip() + '…'
         if row_w < 20:                    # 塌缩到没意义就不画
             return
         # 独立小药丸: 主题底色 + 前景色 14% 淡描边 (与上胶囊同底, 看着是一套)
