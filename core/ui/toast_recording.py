@@ -359,106 +359,117 @@ class ToastWindowRecording:
         self._last_t = None
 
         self.window = tk.Toplevel(parent_root)
-        self.window.overrideredirect(True)
-        self.window.attributes('-topmost', True)
-        self._ulw = None   # 本地改: 逐像素透明渲染器 (UpdateLayeredWindow), 建窗后初始化; 失败则退回 Tk 画法
+        # 本地改 2026-11-11: 建窗中途任何异常都销毁半成品窗口再抛出 —— 窗口一旦建出即已置顶显示,
+        # 异常跳过透明化就留下无人引用、无法关闭的黑窗 (2026-11-10 hint 胶囊 margin_px 崩溃即此症状)
+        try:
+            self.window.overrideredirect(True)
+            self.window.attributes('-topmost', True)
+            self._ulw = None   # 本地改: 逐像素透明渲染器 (UpdateLayeredWindow), 建窗后初始化; 失败则退回 Tk 画法
 
-        self.window.configure(bg=_CHROMA)
-        self.window.pack_propagate(False)
+            self.window.configure(bg=_CHROMA)
+            self.window.pack_propagate(False)
 
-        # 测量文本，计算胶囊尺寸
-        from tkinter import font as tkfont
-        self._font = tkfont.Font(family=self._font_family, size=self._font_size)
-        text_w = self._font.measure(self._text)
-        # 本地改 2026-11-08: 经典样式麦克风名放下方一行 (竖排, 与主题胶囊一致) ——
-        # 横排在右侧把胶囊撑到 280+px; 竖排只按声波宽度 (16+76+16=108) 定宽, 名字居中放下行.
-        # 只给无文案的录音胶囊预留; 名字晚到 (冷启动) 只换字不换宽, 换名超宽按预留宽截断
-        self._scale = capsule_themes.SCALE   # 提前取好 (_warn_font 要用; 后面那行赋的是同一个值)
-        self._mic_font = tkfont.Font(family=self._font_family, size=-12)
-        f = self._warn_font(12)   # ULW 窗口 canvas 文字不可见, 走 PIL 画; 无 truetype 时为 None = 不画
-        self._mic_pil_font = f if getattr(f, 'path', None) else None
-        self._mic_color = '#d6dbe4' if theme()['bottom'][0] < 128 else '#2f3a4c'   # 跟经典玻璃底明暗取字色
-        # 预留时按上限 fit 出展示串存好; 绘制时总线名字没变就原样画 (重 fit 会因 '…' 宽度二次截断), 变了才按预留宽重 fit
-        self._mic_raw = '' if text_w else _read_mic_name()
-        self._mic_text = self._mic_fit(self._mic_raw, _MIC_NAME_MAX) if self._mic_raw else ''
-        self._mic_reserved_w = (round(self._mic_measure(self._mic_text)) + 2) if self._mic_text else 0
-        self._mic_canvas_drawn = None
-        self._mic_row = _MIC_ROW_H if self._mic_text else 0   # 本地改 2026-11-08: 麦克风行高 (0 = 不显示)
-        self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
-                            + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
-        self._h = int(_PILL_H + self._mic_row)   # 竖排: 胶囊加高一行放设备名
-        if self._cap is not None:
-            self._w, self._h = self._cap.cap_w, self._cap.cap_h
+            # 测量文本，计算胶囊尺寸
+            from tkinter import font as tkfont
+            self._font = tkfont.Font(family=self._font_family, size=self._font_size)
+            text_w = self._font.measure(self._text)
+            # 本地改 2026-11-08: 经典样式麦克风名放下方一行 (竖排, 与主题胶囊一致) ——
+            # 横排在右侧把胶囊撑到 280+px; 竖排只按声波宽度 (16+76+16=108) 定宽, 名字居中放下行.
+            # 只给无文案的录音胶囊预留; 名字晚到 (冷启动) 只换字不换宽, 换名超宽按预留宽截断
+            self._scale = capsule_themes.SCALE   # 提前取好 (_warn_font 要用; 后面那行赋的是同一个值)
+            self._mic_font = tkfont.Font(family=self._font_family, size=-12)
+            f = self._warn_font(12)   # ULW 窗口 canvas 文字不可见, 走 PIL 画; 无 truetype 时为 None = 不画
+            self._mic_pil_font = f if getattr(f, 'path', None) else None
+            self._mic_color = '#d6dbe4' if theme()['bottom'][0] < 128 else '#2f3a4c'   # 跟经典玻璃底明暗取字色
+            # 预留时按上限 fit 出展示串存好; 绘制时总线名字没变就原样画 (重 fit 会因 '…' 宽度二次截断), 变了才按预留宽重 fit
+            self._mic_raw = '' if text_w else _read_mic_name()
+            self._mic_text = self._mic_fit(self._mic_raw, _MIC_NAME_MAX) if self._mic_raw else ''
+            self._mic_reserved_w = (round(self._mic_measure(self._mic_text)) + 2) if self._mic_text else 0
+            self._mic_canvas_drawn = None
+            self._mic_row = _MIC_ROW_H if self._mic_text else 0   # 本地改 2026-11-08: 麦克风行高 (0 = 不显示)
+            self._w = int(round(_PAD_X + _DOT_R * 2 + _GAP_DOT_TEXT + text_w
+                                + (_GAP_TEXT_WAVE if text_w else 0) + _WAVE_W + _PAD_X))
+            self._h = int(_PILL_H + self._mic_row)   # 竖排: 胶囊加高一行放设备名
+            if self._cap is not None:
+                self._w, self._h = self._cap.cap_w, self._cap.cap_h
 
-        self.canvas = tk.Canvas(
-            self.window, width=self._w, height=self._h,
-            bg=_CHROMA, highlightthickness=0, bd=0,
-        )
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+            self.canvas = tk.Canvas(
+                self.window, width=self._w, height=self._h,
+                bg=_CHROMA, highlightthickness=0, bd=0,
+            )
+            self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # 本地改 2026-09-24: 定位在鼠标指针正下方 (用户要求; Windows Terminal 不报告文字光标位置, 只能跟鼠标),
-        # 底下放不下就放到指针上方, 靠屏幕边时收进工作区. 窗口点击穿透, 不挡鼠标
-        # 本地改 2026-10-15: 外观页「胶囊跟随鼠标」关掉时, 固定屏幕底部居中 (任务栏上方)
-        margin = _bottom_margin()
-        info = _cursor_monitor_workarea()
-        self._above, self._workarea = False, None   # 本地改 2026-09-25: 实时识别气泡按胶囊位置摆放 (胶囊在指针上方时气泡也往上)
-        if _follow_mouse() and info is not None:
-            cx, cy, left, top, right, bottom = info
-            x = int(min(max(cx - self._w // 2, left), right - self._w))
-            y = cy + margin if cy + margin + self._h <= bottom else cy - margin - self._h
-            y = int(min(max(y, top), bottom - self._h))
-            self._above, self._workarea = y < cy, (left, top, right, bottom)
-        elif info is not None:
-            # 固定底部居中: 鼠标所在屏的工作区 (已刨任务栏), 与 _move_bottom_center 同口径
-            _, _, left, top, right, bottom = info
-            x = int(left + (right - left - self._w) / 2)
-            y = int(bottom - self._h - margin - 24)
-            self._workarea = (left, top, right, bottom)
-        else:
-            # 降级：主屏底部居中
-            sw = self.window.winfo_screenwidth()
-            sh = self.window.winfo_screenheight()
-            x = int((sw - self._w) // 2)
-            y = int(sh - self._h - margin - 48)
-        self._geom = (x, y)
-        self.window.geometry(f'{self._w}x{self._h}+{x}+{y}')
-        self._preview, self._bubble, self._bubble_t, self._bubble_off = '', None, None, False   # 实时识别文字 (任意线程写) / 气泡 (Tk 线程)
-        self._scale = capsule_themes.SCALE
-        from core.ui import live_bubble
-        live_bubble.remember((x, y, self._w, self._h), self._above, self._workarea, _capsule_theme_name(), self._scale)   # 提示气泡用
-        self.window.bind('<Destroy>', lambda e: e.widget is self.window and self._bubble is not None and self._bubble.destroy(), add='+')
+            # 本地改 2026-09-24: 定位在鼠标指针正下方 (用户要求; Windows Terminal 不报告文字光标位置, 只能跟鼠标),
+            # 底下放不下就放到指针上方, 靠屏幕边时收进工作区. 窗口点击穿透, 不挡鼠标
+            # 本地改 2026-10-15: 外观页「胶囊跟随鼠标」关掉时, 固定屏幕底部居中 (任务栏上方)
+            margin = _bottom_margin()
+            info = _cursor_monitor_workarea()
+            self._above, self._workarea = False, None   # 本地改 2026-09-25: 实时识别气泡按胶囊位置摆放 (胶囊在指针上方时气泡也往上)
+            if _follow_mouse() and info is not None:
+                cx, cy, left, top, right, bottom = info
+                x = int(min(max(cx - self._w // 2, left), right - self._w))
+                y = cy + margin if cy + margin + self._h <= bottom else cy - margin - self._h
+                y = int(min(max(y, top), bottom - self._h))
+                self._above, self._workarea = y < cy, (left, top, right, bottom)
+            elif info is not None:
+                # 固定底部居中: 鼠标所在屏的工作区 (已刨任务栏), 与 _move_bottom_center 同口径
+                _, _, left, top, right, bottom = info
+                x = int(left + (right - left - self._w) / 2)
+                y = int(bottom - self._h - margin - 24)
+                self._workarea = (left, top, right, bottom)
+            else:
+                # 降级：主屏底部居中
+                sw = self.window.winfo_screenwidth()
+                sh = self.window.winfo_screenheight()
+                x = int((sw - self._w) // 2)
+                y = int(sh - self._h - margin - 48)
+            self._geom = (x, y)
+            self.window.geometry(f'{self._w}x{self._h}+{x}+{y}')
+            self._preview, self._bubble, self._bubble_t, self._bubble_off = '', None, None, False   # 实时识别文字 (任意线程写) / 气泡 (Tk 线程)
+            self._scale = capsule_themes.SCALE
+            from core.ui import live_bubble
+            live_bubble.remember((x, y, self._w, self._h), self._above, self._workarea, _capsule_theme_name(), self._scale)   # 提示气泡用
+            # getattr 守卫: 构造前段 (气泡属性赋值前) 失败自毁时, <Destroy> 回调不能再抛 AttributeError
+            self.window.bind('<Destroy>', lambda e: e.widget is self.window and getattr(self, '_bubble', None) is not None and self._bubble.destroy(), add='+')
 
-        # 预存布局坐标
-        self._dot_cx = _PAD_X + _DOT_R
-        self._text_x = self._dot_cx + _DOT_R + _GAP_DOT_TEXT
-        self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
-        self._mic_x = self._w / 2          # 本地改 2026-11-08: 竖排 - 设备名水平居中
-        self._mic_y = _PILL_H + self._mic_row / 2   # 竖排 - 声波下方一行的中线
-        self._mid_y = self._h / 2
+            # 预存布局坐标
+            self._dot_cx = _PAD_X + _DOT_R
+            self._text_x = self._dot_cx + _DOT_R + _GAP_DOT_TEXT
+            self._wave_x0 = self._text_x + text_w + (_GAP_TEXT_WAVE if text_w else 0)
+            self._mic_x = self._w / 2          # 本地改 2026-11-08: 竖排 - 设备名水平居中
+            self._mic_y = _PILL_H + self._mic_row / 2   # 竖排 - 声波下方一行的中线
+            self._mid_y = self._h / 2
 
-        self.window.deiconify()
-        if self._theme is not None:
-            self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom,
-                                               margin=self._cap.margin_px, themed=True)
-            if self._ulw is not None:
-                self._themed = self._cap
-                # 胶囊显示期间把系统计时器精度提到 1ms (浏览器做动画同样如此), 关窗时恢复; 否则 60fps 定时只能到 ~38fps
+            self.window.deiconify()
+            if self._theme is not None:
+                self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom,
+                                                   margin=self._cap.margin_px, themed=True)
+                if self._ulw is not None:
+                    self._themed = self._cap
+                    # 胶囊显示期间把系统计时器精度提到 1ms (浏览器做动画同样如此), 关窗时恢复; 否则 60fps 定时只能到 ~38fps
+                    try:
+                        import ctypes
+                        ctypes.windll.winmm.timeBeginPeriod(1)
+                        self.window.bind('<Destroy>', lambda e: e.widget is self.window and ctypes.windll.winmm.timeEndPeriod(1), add='+')
+                    except Exception:
+                        pass
+            if self._themed is None:
+                self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
+            if self._ulw is None:   # 退回 Tk 画法: 抠图色透明 + 整窗 alpha
                 try:
-                    import ctypes
-                    ctypes.windll.winmm.timeBeginPeriod(1)
-                    self.window.bind('<Destroy>', lambda e: e.widget is self.window and ctypes.windll.winmm.timeEndPeriod(1), add='+')
-                except Exception:
-                    pass
-        if self._themed is None:
-            self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom)
-        if self._ulw is None:   # 退回 Tk 画法: 抠图色透明 + 整窗 alpha
+                    self.window.attributes('-transparentcolor', _CHROMA)
+                    self.window.attributes('-alpha', 0.0)
+                except tk.TclError:
+                    self._alpha = self._target_alpha
+                self._draw_static()
+            self._tick()
+        except Exception as e:
             try:
-                self.window.attributes('-transparentcolor', _CHROMA)
-                self.window.attributes('-alpha', 0.0)
+                self.window.destroy()   # 销毁半成品: 不留孤儿黑窗
             except tk.TclError:
-                self._alpha = self._target_alpha
-            self._draw_static()
-        self._tick()
+                pass
+            logger.warning(f'胶囊构造失败, 已销毁半成品窗口: {e!r}')
+            raise
 
     # -- 绘制 --------------------------------------------------------------
     def _mic_measure(self, s: str) -> float:

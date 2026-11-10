@@ -240,6 +240,8 @@ class ToastMessageManager:
 
         except Exception as e:
             logger.warning(f"处理队列消息时出错: {e}")
+            # 本地改 2026-11-11: 异常路径也清一次已销毁窗口 (构造失败的半成品由 RecordingToast 自毁)
+            self.active_windows = [w for w in self.active_windows if self._window_exists(w)]
 
         # 继续处理队列
         if self.is_running and self.root:
