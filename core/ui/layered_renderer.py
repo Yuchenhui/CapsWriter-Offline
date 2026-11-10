@@ -8,6 +8,10 @@ Tk 画布没有抗锯齿, 抠图色透明只能整像素透/不透, 整窗 alpha
 import ctypes
 from ctypes import wintypes
 
+from .toast_logger import get_toast_logger
+
+logger = get_toast_logger(__name__)
+
 # 本地改 2026-09-24: 按 Windows 应用主题 (AppsUseLightTheme) 取配色, 每个胶囊创建时读一次, 切主题下一句即生效.
 # top/bottom = 玻璃底自上而下渐变 (RGBA, alpha 越小越透); rim = 外沿细边; shadow = 投影; dot = 转写中暗点
 THEMES = {
@@ -120,7 +124,11 @@ class LayeredRenderer:
             self._free()
             raise OSError('CreateDIBSection 失败')
         _g32.SelectObject(self.hdc_mem, self.hbmp)
-        window.bind('<Destroy>', lambda e: self._free(), add='+')
+        # 本地改 2026-11-11: 加 e.widget 守卫 —— 不加时任何子控件销毁事件都会经 bindtags
+        # 传进本绑定, 提前 DeleteObject 释放 DIB, 下一帧 memmove 写已释放页 -> access violation
+        # (2026-11-11 实测: hint 胶囊第二帧 blit 崩, 三次均页对齐地址 = DIB 区块起点).
+        # 同文件其余 <Destroy> 绑定均有此守卫, 唯独这里漏了
+        window.bind('<Destroy>', lambda e: e.widget is window and self._free(), add='+')
 
     def _background(self):
         """静态层: 投影 + 渐变玻璃底 + 细亮边 (SS 倍大小, RGBA). 顶部内高光在小胶囊上像多一道杠, 已去掉"""
@@ -196,6 +204,9 @@ class LayeredRenderer:
         self._present(img.convert('RGBa').tobytes('raw', 'BGRa'), alpha)
 
     def _present(self, data, alpha):
+        if not getattr(self, 'hbmp', None):   # 本地改 2026-11-11: DIB 已释放时跳过本帧, 防 memmove 写已释放页
+            logger.warning('ULW._present 在 _free 之后被调用, 跳过本帧')
+            return
         ctypes.memmove(self.bits, data, len(data))
         src = wintypes.POINT(0, 0)
         blend = _BLEND(0, 0, max(0, min(255, round(alpha * 255))), 1)   # AC_SRC_OVER, AC_SRC_ALPHA
@@ -204,6 +215,8 @@ class LayeredRenderer:
 
     def _free(self):
         if getattr(self, 'hbmp', None):
+            import traceback
+            logger.warning('ULW._free 释放 DIB, 调用栈:\n' + ''.join(traceback.format_stack()[:-1]))
             _g32.DeleteObject(self.hbmp)
             self.hbmp = None
         if getattr(self, 'hdc_mem', None):
