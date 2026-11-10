@@ -82,6 +82,12 @@ class LayeredRenderer:
     SS = 3        # 超采样倍数
     M = 16        # 窗口四周为投影预留的边距 (像素)
 
+    @staticmethod
+    def _mask32(v):
+        """2026-11-11: 把 restype=c_void_p 读回的 GDI/USER 句柄掩码到低 32 位 (Win64 高位是垃圾),
+        详见 __init__ 注释"""
+        return v & 0xFFFFFFFF if v else v
+
     @classmethod
     def create(cls, window, w, h, x, y, margin=None, themed=False):
         """w/h/x/y 是胶囊本身的尺寸与屏幕位置; 失败返回 None.
@@ -102,7 +108,11 @@ class LayeredRenderer:
         self.Image, self.ImageChops, self.ImageDraw = Image, ImageChops, ImageDraw
 
         window.update_idletasks()
-        self.hwnd = _u32.GetParent(window.winfo_id()) or window.winfo_id()
+        # 2026-11-11: Win64 上 GDI/USER 句柄只有低 32 位有效, restype=c_void_p 会把 EAX 高位垃圾
+        # 一起读进来 (实测 CreateDIBSection 返回 0xFFFFFFFFD1D2xxxx 这类符号扩展值), 传回 GDI 即
+        # 非法句柄: SelectObject/UpdateLayeredWindow 静默失败 -> 胶囊隐形, DIB 部分页后续写入 AV。
+        # 统一掩码到低 32 位
+        self.hwnd = self._mask32(_u32.GetParent(window.winfo_id()) or window.winfo_id())
         _u32.SetWindowLongW(self.hwnd, _GWL_EXSTYLE, _u32.GetWindowLongW(self.hwnd, _GWL_EXSTYLE) | _WS_EX)
 
         if margin is not None:
@@ -116,10 +126,10 @@ class LayeredRenderer:
 
         # 32 位自顶向下 DIB, 建一次复用
         bmi = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), self.W, -self.H, 1, 32, 0, 0, 0, 0, 0, 0)
-        self.hdc_screen = _u32.GetDC(None)
-        self.hdc_mem = _g32.CreateCompatibleDC(self.hdc_screen)
+        self.hdc_screen = self._mask32(_u32.GetDC(None))
+        self.hdc_mem = self._mask32(_g32.CreateCompatibleDC(self.hdc_screen))
         self.bits = ctypes.c_void_p()
-        self.hbmp = _g32.CreateDIBSection(self.hdc_screen, ctypes.byref(bmi), 0, ctypes.byref(self.bits), None, 0)
+        self.hbmp = self._mask32(_g32.CreateDIBSection(self.hdc_screen, ctypes.byref(bmi), 0, ctypes.byref(self.bits), None, 0))
         if not self.hbmp:
             self._free()
             raise OSError('CreateDIBSection 失败')
