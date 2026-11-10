@@ -599,7 +599,19 @@ class ToastWindowRecording:
         ready_left = self._ready_flash_until - now
         if ready_left > 0:
             img = _tint_green(img, math.sin(math.pi * min(1.0, ready_left / 0.38)))
-        self._ulw.blit(img, a)
+        try:
+            self._ulw.blit(img, a)
+        except OSError as e:
+            # 本地改 2026-11-11: live 进程 DIB 页面失效 (hbmp 存活但 memmove AV, 离线不可复现),
+            # 就地重建渲染器重试一次 —— hint 胶囊在 AV 后停帧会留隐形窗且永不自毁
+            from core.ui import capsule_themes
+            logger.warning(f'胶囊 blit 失败, 重建渲染器重试 (SCALE={capsule_themes.SCALE}): {e}')
+            self._ulw = LayeredRenderer.create(self.window, self._w, self._h, *self._geom,
+                                               margin=self._cap.margin_px, themed=True)
+            if self._ulw is not None:
+                self._ulw.blit(img, a)
+            else:
+                raise
         if self._themed.finished(now):
             self._on_proc_timeout()      # 完成动画播完: 自毁 (同超时路径, 会通知持有者回收注册)
             return

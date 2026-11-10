@@ -207,11 +207,21 @@ class LayeredRenderer:
         if not getattr(self, 'hbmp', None):   # 本地改 2026-11-11: DIB 已释放时跳过本帧, 防 memmove 写已释放页
             logger.warning('ULW._present 在 _free 之后被调用, 跳过本帧')
             return
-        ctypes.memmove(self.bits, data, len(data))
+        if not getattr(self, '_logged_first', False):   # 本地改 2026-11-11: 诊断 hint 胶囊 AV, 稳定后移除
+            self._logged_first = True
+            logger.debug(f'ULW 首帧: W={self.W} H={self.H} len={len(data)} bits={self.bits:#x} hbmp={self.hbmp}')
+        try:
+            ctypes.memmove(self.bits, data, len(data))
+        except OSError as e:   # 本地改 2026-11-11: 记录完整现场 (live 特有, 离线不可复现)
+            logger.warning(f'memmove AV: bits={self.bits:#x} hbmp={self.hbmp} '
+                           f'objtype={_g32.GetObjectType(self.hbmp)} W={self.W} H={self.H} '
+                           f'len={len(data)} DIB字节={self.W * self.H * 4} err={e}')
+            raise
         src = wintypes.POINT(0, 0)
         blend = _BLEND(0, 0, max(0, min(255, round(alpha * 255))), 1)   # AC_SRC_OVER, AC_SRC_ALPHA
-        _u32.UpdateLayeredWindow(self.hwnd, self.hdc_screen, ctypes.byref(self.pos), ctypes.byref(self.size),
-                                 self.hdc_mem, ctypes.byref(src), 0, ctypes.byref(blend), 2)   # ULW_ALPHA
+        if not _u32.UpdateLayeredWindow(self.hwnd, self.hdc_screen, ctypes.byref(self.pos), ctypes.byref(self.size),
+                                        self.hdc_mem, ctypes.byref(src), 0, ctypes.byref(blend), 2):   # ULW_ALPHA
+            logger.warning(f'UpdateLayeredWindow FALSE err={ctypes.GetLastError()} hwnd={self.hwnd:#x}')
 
     def _free(self):
         if getattr(self, 'hbmp', None):
