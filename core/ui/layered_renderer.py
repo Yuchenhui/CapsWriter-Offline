@@ -209,11 +209,13 @@ class LayeredRenderer:
             return
         if not getattr(self, '_logged_first', False):   # 本地改 2026-11-11: 诊断 hint 胶囊 AV, 稳定后移除
             self._logged_first = True
-            logger.debug(f'ULW 首帧: W={self.W} H={self.H} len={len(data)} bits={self.bits:#x} hbmp={self.hbmp}')
+            bv = (self.bits.value or 0) if isinstance(self.bits, ctypes.c_void_p) else (self.bits or 0)
+            logger.debug(f'ULW 首帧: W={self.W} H={self.H} len={len(data)} bits={bv:#x} hbmp={self.hbmp}')
         try:
             ctypes.memmove(self.bits, data, len(data))
         except OSError as e:   # 本地改 2026-11-11: 记录完整现场 (live 特有, 离线不可复现)
-            logger.warning(f'memmove AV: bits={self.bits:#x} hbmp={self.hbmp} '
+            bv = (self.bits.value or 0) if isinstance(self.bits, ctypes.c_void_p) else (self.bits or 0)
+            logger.warning(f'memmove AV: bits={bv:#x} hbmp={self.hbmp} '
                            f'objtype={_g32.GetObjectType(self.hbmp)} W={self.W} H={self.H} '
                            f'len={len(data)} DIB字节={self.W * self.H * 4} err={e}')
             raise
