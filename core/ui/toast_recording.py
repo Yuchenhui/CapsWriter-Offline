@@ -350,9 +350,11 @@ class ToastWindowRecording:
         from core.ui import capsule_themes
         capsule_themes.set_scale(_monitor_scale())        # 按鼠标所在屏的物理像素密度缩放, 两块屏上看着一样大
         self._theme = capsule_themes.get(_capsule_theme_name())
-        # 本地改 2026-11-08: 主题胶囊右侧预留「麦克风区」(设备名小字); hint/bwarn 一次性胶囊带文案, 不留
-        self._cap = (capsule_themes.Capsule(self._theme, mic_label=_read_mic_name())
-                     if self._theme is not None and not self._text.strip() else None)
+        # 本地改 2026-11-10: hint/bwarn 一次性胶囊带文案, 不留麦克风行 (mic_label=''),
+        # 但 _cap 必须建 —— 主题渲染分支按 _cap.margin_px 建窗, None 会在 deiconify 后抛
+        # AttributeError, 留下无人引用、永不销毁的黑窗, 且绿对勾提示从此弹不出 (2026-11-10 实测)
+        self._cap = (capsule_themes.Capsule(self._theme, mic_label='' if self._text.strip() else _read_mic_name())
+                     if self._theme is not None else None)
         self._themed = None
         self._last_t = None
 
@@ -574,7 +576,8 @@ class ToastWindowRecording:
         # hint 复用主题的 done 绿对勾弹出动画, 播完 finished() 自毁 (2026-10-15)
         theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done', 'hint': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
-        self._themed.set_mic_label(_read_mic_name())   # 本地改 2026-11-08: 每帧读总线, 冷启动晚到也能显示
+        if not self._text.strip():   # hint/bwarn 一次性胶囊不带麦克风行 (每帧 set 会补建下胶囊)
+            self._themed.set_mic_label(_read_mic_name())   # 本地改 2026-11-08: 每帧读总线, 冷启动晚到也能显示
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh and self._applied_mode != 'waiting' else 0.0)
         if self._applied_mode == 'waiting':
