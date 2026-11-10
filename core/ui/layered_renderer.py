@@ -211,7 +211,11 @@ class LayeredRenderer:
 
     def blit(self, img, alpha):
         """主题胶囊: img 是整窗大小 (胶囊 + 四周边距) 的 1 倍 RGBA"""
-        self._present(img.convert('RGBa').tobytes('raw', 'BGRa'), alpha)
+        data = img.convert('RGBa').tobytes('raw', 'BGRa')
+        if len(data) != self.W * self.H * 4:   # 本地改 2026-11-11: 帧与 DIB 尺寸不一致时丢弃本帧, 防 memmove 写溢出
+            logger.warning(f'ULW.blit 尺寸不匹配: 帧={len(data)}B DIB={self.W * self.H * 4}B, 跳过本帧')
+            return
+        self._present(data, alpha)
 
     def _present(self, data, alpha):
         if not getattr(self, 'hbmp', None):   # 本地改 2026-11-11: DIB 已释放时跳过本帧, 防 memmove 写已释放页

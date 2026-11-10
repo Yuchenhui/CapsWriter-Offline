@@ -355,6 +355,10 @@ class ToastWindowRecording:
         # AttributeError, 留下无人引用、永不销毁的黑窗, 且绿对勾提示从此弹不出 (2026-11-10 实测)
         self._cap = (capsule_themes.Capsule(self._theme, mic_label='' if self._text.strip() else _read_mic_name())
                      if self._theme is not None else None)
+        # 本地改 2026-11-11: hint/bwarn 永不带麦克风行 —— 不能用 _text 判断, _enter_processing
+        # 会把它清成 _PROC_LABEL(''), 那之后每帧 set_mic_label 补建下胶囊并 _resize,
+        # 帧图像比建窗时的 DIB 高一行 -> blit 写溢出 access violation (2026-11-11 实测)
+        self._mic_label_enabled = self._theme is not None and not self._text.strip()
         self._themed = None
         self._last_t = None
 
@@ -587,7 +591,7 @@ class ToastWindowRecording:
         # hint 复用主题的 done 绿对勾弹出动画, 播完 finished() 自毁 (2026-10-15)
         theme_mode = {'listening': 'recording', 'waiting': 'recording', 'done': 'done', 'warn': 'done', 'hint': 'done'}.get(self._applied_mode, 'processing')
         self._themed.set_mode(theme_mode, now)
-        if not self._text.strip():   # hint/bwarn 一次性胶囊不带麦克风行 (每帧 set 会补建下胶囊)
+        if self._mic_label_enabled:   # 2026-11-11: hint/bwarn 不带麦克风行 (原按 _text 判断, 会被清空)
             self._themed.set_mic_label(_read_mic_name())   # 本地改 2026-11-08: 每帧读总线, 冷启动晚到也能显示
         raw, fresh = _read_mic_level()
         img, a = self._themed.frame(now, _level_target(raw, dt) if fresh and self._applied_mode != 'waiting' else 0.0)
