@@ -21,13 +21,14 @@ int wmain(int argc, wchar_t** argv) {
         if (SUCCEEDED(hr) && !wcscmp(argv[1], L"register")) {
             hr = profiles->RegisterProfile(kServiceClsid, kLanguage, kProfileGuid, kName,
                 static_cast<ULONG>(wcslen(kName)), argv[2], static_cast<ULONG>(wcslen(argv[2])),
-                0, nullptr, 0, FALSE, 0);
+                0, nullptr, 0, FALSE, TF_RP_HIDDENINSETTINGUI);
             if (SUCCEEDED(hr)) {
                 hr = categories->RegisterCategory(kServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kServiceClsid);
                 if (SUCCEEDED(hr)) {
                     ComPtr<ITfInputProcessorProfiles> userProfiles;
                     hr = profiles->QueryInterface(IID_ITfInputProcessorProfiles, reinterpret_cast<void**>(userProfiles.put()));
-                    if (SUCCEEDED(hr)) hr = userProfiles->EnableLanguageProfile(kServiceClsid, kLanguage, kProfileGuid, TRUE);
+                    // 默认停用: 停用的 profile 不出现在 Win+Space 切换器; 客户端按需临时启用
+                    if (SUCCEEDED(hr)) hr = userProfiles->EnableLanguageProfile(kServiceClsid, kLanguage, kProfileGuid, FALSE);
                 }
                 if (FAILED(hr)) {
                     HRESULT categoryRollback = categories->UnregisterCategory(kServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kServiceClsid);

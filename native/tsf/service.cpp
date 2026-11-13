@@ -281,6 +281,21 @@ extern "C" __declspec(dllexport) unsigned __stdcall TsfProfileCapture(wchar_t* b
     return written;
 }
 
+extern "C" __declspec(dllexport) HRESULT __stdcall TsfProfileDisable() {
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(init) && init != RPC_E_CHANGED_MODE) return init;
+    HRESULT hr = E_FAIL;
+    ITfInputProcessorProfiles* profiles = nullptr;
+    if (SUCCEEDED(hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+        IID_ITfInputProcessorProfiles, reinterpret_cast<void**>(&profiles)))) {
+        // 停用后不再出现在 Win+Space 切换器; 下一句由 TsfProfileSwitch 的 ENABLEPROFILE 重新启用
+        hr = profiles->EnableLanguageProfile(kServiceClsid, kLanguage, kProfileGuid, FALSE);
+        profiles->Release();
+    }
+    if (init != RPC_E_CHANGED_MODE) CoUninitialize();
+    return hr;
+}
+
 extern "C" __declspec(dllexport) HRESULT __stdcall TsfProfileSwitch(const wchar_t* text) {
     if (!text) return E_POINTER;
     wchar_t clsidText[64]{}; wchar_t guidText[64]{}; unsigned langid = 0;
@@ -296,7 +311,8 @@ extern "C" __declspec(dllexport) HRESULT __stdcall TsfProfileSwitch(const wchar_
     ITfInputProcessorProfileMgr* mgr = nullptr;
     if (SUCCEEDED(hr = profileMgrInstance(&mgr))) {
         hr = mgr->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, static_cast<LANGID>(langid),
-            clsid, guidProfile, nullptr, TF_IPPMF_FORSESSION | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
+            clsid, guidProfile, nullptr,
+            TF_IPPMF_FORSESSION | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE | TF_IPPMF_ENABLEPROFILE);
         mgr->Release();
     }
     if (init != RPC_E_CHANGED_MODE) CoUninitialize();

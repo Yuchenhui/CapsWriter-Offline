@@ -284,6 +284,10 @@ def _profile_api(dll_path: str):
         dll.TsfProfileCapture.restype = ctypes.c_uint          # 写入的字符数, 0=失败
         dll.TsfProfileSwitch.argtypes = [ctypes.c_wchar_p]
         dll.TsfProfileSwitch.restype = ctypes.c_long           # HRESULT
+        disable = getattr(dll, 'TsfProfileDisable', None)      # 旧版 DLL 可能没有: 则不停用
+        if disable is not None:
+            disable.argtypes = []
+            disable.restype = ctypes.c_long
         _dll_cache = dll
         return dll
     except Exception as e:
@@ -339,6 +343,14 @@ def send_text_auto(text: str, dll_path: str, timeout_ms: int = SEND_TIMEOUT_MS) 
             hr = prof.TsfProfileSwitch(captured)
             if hr != 0:
                 logger.warning(f'还原输入法失败 HRESULT=0x{hr & 0xFFFFFFFF:08X}, 当前停在: {captured}')
+            # 停用自己: 停用的 profile 不出现在 Win+Space 切换器; 下一句再临时启用。
+            # 失败只记日志: 至多让切换器多一项, 不影响还原结果。
+            try:
+                disable = getattr(prof, 'TsfProfileDisable', None)
+                if disable is not None:
+                    disable()
+            except Exception as e:
+                logger.debug(f'停用 CapsWriter Voice 失败: {e!r}')
 
 
 def _capture_profile(prof) -> str:

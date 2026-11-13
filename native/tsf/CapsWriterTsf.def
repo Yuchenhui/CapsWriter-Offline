@@ -4,3 +4,4 @@ EXPORTS
     DllCanUnloadNow PRIVATE
     TsfProfileCapture PRIVATE
     TsfProfileSwitch PRIVATE
+    TsfProfileDisable PRIVATE
