@@ -12,6 +12,7 @@ from config_client import ClientConfig as Config
 from core.tools.asyncio_to_thread import to_thread
 from core.client.output.text_output import TextOutput
 from core.client.output import carry_punc
+from core.client.output.native_tsf import native_enabled, output_native
 from core.client.clipboard import paste_text
 from core.client.ui.recording_toast import close_active
 from . import logger
@@ -33,6 +34,10 @@ async def handle_typing_mode(handler, text: str, paste: bool = None, matched_hot
     handler.monitor.reset()  # 重置停止标志
 
     try:
+        # 原生 TSF 模式 (opt-in): 不论 paste 与否都不流式 —— 整段生成后经 WM_COPYDATA
+        # 一次性插入, 不逐 chunk 直插、不用 keyboard 兜底 (协议禁止回退)
+        if native_enabled():
+            return await _process_native(handler, role_config, content, matched_hotwords)
         if paste:
             return await _process_paste(handler, role_config, content, matched_hotwords)
         else:
@@ -43,6 +48,20 @@ async def handle_typing_mode(handler, text: str, paste: bool = None, matched_hot
         result_text = TextOutput.strip_punc(result_text)
         await output_text(result_text, paste)
         return (result_text, 0, 0.0)
+
+
+async def _process_native(handler, role_config, content, matched_hotwords) -> tuple:
+    """原生 TSF 模式: 整段生成后经 output_text (按模式路由) 一次性直插;
+    失败/结果未知由 output_native 弹提示且不回退, 文本在历史记录"""
+    polished_text, token_count, gen_time = await to_thread(
+        handler.process, role_config, content, matched_hotwords, None
+    )
+    if handler.monitor.should_stop():
+        return ("", 0, 0.0)
+
+    final_text = TextOutput.strip_punc(polished_text or content)
+    await output_text(final_text, None)
+    return (final_text, token_count, gen_time)
 
 
 async def _process_paste(handler, role_config, content, matched_hotwords) -> tuple:
@@ -122,8 +141,11 @@ async def _process_streaming(handler, role_config, content, matched_hotwords) ->
 
 
 async def output_text(text: str, paste: bool = None):
-    """输出文本（根据 paste 或 Config.paste 选择方式）"""
+    """输出文本（按 output_mode 路由: tsf -> 原生直插; 否则 paste / 打字, 行为不变）"""
     text = carry_punc.prefixed(text)
+    if native_enabled():
+        await output_native(text)
+        return
     if paste:
         await paste_text(text, restore_clipboard=Config.restore_clip)
     else:

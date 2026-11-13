@@ -34,6 +34,7 @@ class Context:
              'translate_language': getattr(C, 'translate_language', '英语'),
              'translate_provider': getattr(C, 'translate_provider', 'deepseek'),
              'capsule_follow_mouse': getattr(C, 'capsule_follow_mouse', True),
+             'output_mode': getattr(C, 'output_mode', 'clipboard'),
              'asr_fallback': list(getattr(C, 'asr_fallback', []) or []), 'vad_enable': getattr(C, 'vad_enable', True),
              'diagnostic_capture_remaining': int(getattr(C, 'diagnostic_capture_remaining', 0) or 0)}
         if self.readonly:                 # 预览是独立进程, 内存里的 Config 不是客户端的, 以 user_state.json 为准
@@ -70,6 +71,8 @@ class Context:
             print(f'[预览, 未生效] {what} {args[:1]}')
             if what == 'set_theme':
                 self._preview['capsule_theme'] = args[0]
+            elif what == 'set_output_mode':
+                self._preview['output_mode'] = args[0]
             self._saved(True, '预览模式，未保存')
             return True
         from core.client.settings import actions

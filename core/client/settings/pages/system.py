@@ -1,7 +1,7 @@
 # coding: utf-8
 import tkinter as tk
 
-from core.client.settings.widgets import Card, Toggle, heading, font
+from core.client.settings.widgets import Card, ChoiceGroup, Toggle, heading, section, font
 
 TITLE = '系统'
 
@@ -35,7 +35,30 @@ def build(parent, pal, ctx):
          '关 = 麦克风一直开着，按下即录',
          float(getattr(Config, 'mic_idle_release_sec', 0) or 0) > 0, lambda v: ctx.do('set_mic_idle', v))
     _max_record_row(c.body, pal, ctx, int(getattr(Config, 'max_record_sec', 30) or 0), actions.MAX_RECORD_RANGE)
+    _output_mode_card(f, pal, ctx)
     return f
+
+
+OUTPUT_MODE_ITEMS = (
+    ('clipboard', '剪贴板粘贴', '默认。写入剪贴板后模拟 Ctrl-V，行为与以前完全一致'),
+    ('tsf', '原生直插（试验）', '经 TSF 把文字直接写进当前窗口，x64、仅单行'),
+)
+
+
+def _output_mode_card(parent, pal, ctx):
+    c = Card(parent, pal)
+    c.pack(fill='x', pady=(12, 0))
+    section(c.body, pal, '文本上屏', bg=pal.surface).pack(anchor='w', pady=(0, 8))
+    mode = ctx.state().get('output_mode', 'clipboard')
+    if mode not in ('clipboard', 'tsf'):
+        mode = 'clipboard'
+    ChoiceGroup(c.body, pal, [{'key': k, 'title': t, 'detail': d} for k, t, d in OUTPUT_MODE_ITEMS],
+                mode, lambda k: ctx.do('set_output_mode', k)).pack(fill='x')
+    tk.Label(c.body, text=_nb('原生直插需先在 Windows 设置 > 时间和语言 > 语言和输入法里添加并选中「CapsWriter Voice」'
+              '输入法（这里不做输入法注册，也不改默认输入法），且当前前台应用加载了该输入法才能直插。'
+              '找不到服务、焦点变化、超时或含换行/控制字符的那一句不会上屏，也不会改用剪贴板，'
+              '完整文本保留在历史记录里。'),
+             font=font(9), bg=pal.surface, fg=pal.muted, wraplength=520, justify='left').pack(anchor='w', pady=(8, 0))
 
 
 def _max_record_row(parent, pal, ctx, value, rng):

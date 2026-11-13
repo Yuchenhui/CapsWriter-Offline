@@ -45,6 +45,11 @@ class ClientConfig:
     restore_clip = False        # 保留识别文字供延迟粘贴；Windows 仍排除剪贴板历史并保护图片/文件/富文本
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴
 
+    output_mode  = 'clipboard'  # 上屏方式: 'clipboard' = 剪贴板+Ctrl-V (默认); 'tsf' = 原生 TSF 直插 (试验)
+                                # tsf: WM_COPYDATA 交给前台进程内的 CapsWriter.TsfBridge.V1 桥 (x64, 仅单行,
+                                # 多行/控制字符整句拒发); 需在 Windows 输入法列表选中「CapsWriter Voice」后才可用;
+                                # 失败/超时不回退剪贴板, 文本保留在历史记录. 设置页「系统」切换, 存 user_state.json
+
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
 
     save_audio = False          # 是否保存录音文件 (关: 每句一个 WAV, 越积越多)

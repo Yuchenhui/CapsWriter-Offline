@@ -15,6 +15,7 @@ import keyboard
 from config_client import ClientConfig as Config
 from core.tools.window_detector import get_active_window_info
 from core.client.output import carry_punc
+from core.client.output.native_tsf import native_enabled, output_native
 from . import logger
 
 
@@ -94,7 +95,13 @@ class TextOutput:
         # 确定输出方式
         if paste is None:
             paste = Config.paste
-        
+
+        # 原生 TSF 模式 (opt-in): 常规上屏整段经 WM_COPYDATA 直插, 一次成型;
+        # 失败/结果未知不回退剪贴板或模拟按键 (协议禁止), 文本已由调用方写入历史记录。
+        if native_enabled():
+            await output_native(text)
+            return
+
         if paste:
             await self._paste_text(text)
         else:

@@ -25,6 +25,11 @@ def _set(attr, value, label) -> bool:
     return True
 
 
+def set_output_mode(mode: str) -> bool:
+    from core.client import user_state
+    return user_state.set_output_mode(mode)
+
+
 def set_theme(key: str) -> bool:
     return key in THEMES and _set('capsule_theme', key, '胶囊主题')
 
