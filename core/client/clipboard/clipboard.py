@@ -126,21 +126,18 @@ async def paste_text(text: str, restore_clipboard: bool = True):
         restore_clipboard: 粘贴后是否恢复原剪贴板内容
     """
     if platform.system() == 'Windows':
-        original = plain_text_snapshot() if restore_clipboard else None
-        if restore_clipboard and (original is None or clipboard_seq() != original[2]):
-            # 图片、文件、富文本等不能按纯文本还原；单行可直接打字，多行必须停止。
+        original = plain_text_snapshot()
+        if original is None or clipboard_seq() != original[2]:
+            # 图片、文件、富文本等不覆盖；单行可直接打字，多行必须停止。
             if _type_fallback(text):
                 logger.debug('原剪贴板不是纯文本，改用模拟打字')
             return
         try:
-            seq = set_clipboard_text(text, exclude_history=restore_clipboard)
+            seq = set_clipboard_text(text, exclude_history=True)
         except Exception as e:
             logger.warning(f'直写剪贴板失败: {e}')
-            if restore_clipboard:
-                _type_fallback(text)
-                return
-            pyclip.copy(text)
-            seq = clipboard_seq()
+            _type_fallback(text)
+            return
         try:
             controller = keyboard.Controller()
             with controller.pressed(keyboard.Key.ctrl):
@@ -158,6 +155,8 @@ async def paste_text(text: str, restore_clipboard: bool = True):
                             pyclip.copy(original[1])
                 else:
                     logger.debug('剪贴板期间被别的程序改过，不恢复')
+            else:
+                logger.debug('识别文字保留在剪贴板，不自动恢复')
         return
 
     # 其他系统保留原有实现

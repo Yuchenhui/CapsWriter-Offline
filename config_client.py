@@ -42,7 +42,7 @@ class ClientConfig:
     vad_max_speech_ratio = 0.07 # 整句语音占比 (语音时长/总时长): 2026-10-08 由 0.10 下调, 放过 21:56:39 那类 ratio 0.07-0.099 的边缘短句 (电平正常但节奏散 / 句首停顿 / 冷启动残留), 仍拦 ratio < 0.07 的真噪声. 已知边界: 9.1% 噪声样本不再拦截
 
     paste        = True         # 走剪贴板+Ctrl-V: 模拟逐字键入会经过 WeType IME, 在 VS Code 终端里重复
-    restore_clip = True         # 语音粘贴后恢复原剪贴板；图片/文件/富文本不临时覆盖，改用模拟打字
+    restore_clip = False        # 保留识别文字供延迟粘贴；Windows 仍排除剪贴板历史并保护图片/文件/富文本
     paste_apps   = ['WeiXin.exe', 'Telegram.exe']  # 匹配时强制粘贴
 
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
