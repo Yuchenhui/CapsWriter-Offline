@@ -256,3 +256,96 @@ def send_text(text: str, timeout_ms: int = SEND_TIMEOUT_MS) -> tuple:
     if not sent:
         return ST_UNKNOWN, f'SendMessageTimeout failed (winerror={api.last_error()})'
     return status_from_lresult(reply)
+
+
+# ---- 自动临时切换输入法: 输出前切到 CapsWriter Voice, 发完自动还原用户的输入法 ----
+
+OUR_PROFILE = '{B96C3F71-DB8A-4FBA-9F27-8F2D7F819D7A}|{A41CCB7E-34BB-4206-A4A7-F18100418359}|2052'
+BRIDGE_WAIT_SEC = 0.8     # 切换后等待前台应用创建桥窗口的上限
+BRIDGE_POLL_SEC = 0.05
+CAPTURE_CCH = 128
+
+_dll_cache = None         # 加载成功的 ctypes DLL; False = 加载失败 (不重试)
+
+
+def _profile_api(dll_path: str):
+    """惰性加载原生组件的 TsfProfileCapture/TsfProfileSwitch 导出; 失败返回 None。"""
+    global _dll_cache
+    if _dll_cache is not None:
+        return _dll_cache if _dll_cache is not False else None
+    if platform.system() != 'Windows':
+        _dll_cache = False
+        return None
+    try:
+        import ctypes
+        import os
+        dll = ctypes.WinDLL(os.path.abspath(dll_path), use_last_error=True)
+        dll.TsfProfileCapture.argtypes = [ctypes.c_wchar_p, ctypes.c_uint]
+        dll.TsfProfileCapture.restype = ctypes.c_uint          # 写入的字符数, 0=失败
+        dll.TsfProfileSwitch.argtypes = [ctypes.c_wchar_p]
+        dll.TsfProfileSwitch.restype = ctypes.c_long           # HRESULT
+        _dll_cache = dll
+        return dll
+    except Exception as e:
+        logger.warning(f'加载 TSF 组件失败: {dll_path} -> {e!r}')
+        _dll_cache = False
+        return None
+
+
+def send_text_auto(text: str, dll_path: str, timeout_ms: int = SEND_TIMEOUT_MS) -> tuple:
+    """send_text 的自动切换版: 前台没有桥窗口时, 临时切到 CapsWriter Voice,
+    等桥窗口出现后发送, finally 里无条件还原切换前的输入法。
+
+    - 前台已有桥窗口 (用户手动选了输入法) -> 直接 send_text, 不做任何切换。
+    - 读不到当前输入法 (纯键盘布局等) -> 拒发, 避免切过去还原不回来。
+    - 切换失败 / 桥窗口未出现 -> 拒发并如实报告; 只有切换成功过才需要还原。
+    - 发送失败/超时 (unknown) 也照常还原, 结果语义与 send_text 一致。
+    """
+    err = payload_error(text)
+    if err:
+        return ST_INVALID, f'payload rejected locally: {err}'
+    api = _load_api()
+    if api is None:
+        return ST_UNAVAILABLE, 'Win32 APIs unavailable (non-Windows platform?)'
+    hwnd, _why = _bridge_for_foreground(api)
+    if hwnd:
+        return send_text(text, timeout_ms)
+    prof = _profile_api(dll_path)
+    if prof is None:
+        return ST_NO_BRIDGE, f'TSF profile component unavailable: {dll_path}'
+    import time as _time
+    captured = _capture_profile(prof)
+    if not captured:
+        return ST_NO_BRIDGE, '无法读取当前输入法 (GetActiveProfile), 不做切换'
+    if captured != OUR_PROFILE:
+        hr = prof.TsfProfileSwitch(OUR_PROFILE)
+        if hr != 0:
+            return ST_NO_BRIDGE, f'切换输入法失败 HRESULT=0x{hr & 0xFFFFFFFF:08X}'
+    deadline = _time.monotonic() + BRIDGE_WAIT_SEC
+    while True:
+        hwnd, why = _bridge_for_foreground(api)
+        if hwnd:
+            break
+        if _time.monotonic() >= deadline:
+            hwnd, why = 0, '切换后前台未出现桥窗口'
+            break
+        _time.sleep(BRIDGE_POLL_SEC)
+    try:
+        if hwnd:
+            return send_text(text, timeout_ms)
+        return ST_NO_BRIDGE, why
+    finally:
+        if captured != OUR_PROFILE:
+            hr = prof.TsfProfileSwitch(captured)
+            if hr != 0:
+                logger.warning(f'还原输入法失败 HRESULT=0x{hr & 0xFFFFFFFF:08X}, 当前停在: {captured}')
+
+
+def _capture_profile(prof) -> str:
+    """读取当前激活的键盘类文本服务, 返回 'clsid|guid|langid'; 失败/纯键盘布局返回 ''。"""
+    import ctypes
+    buf = ctypes.create_unicode_buffer(CAPTURE_CCH)
+    written = prof.TsfProfileCapture(buf, CAPTURE_CCH)
+    if not written or written >= CAPTURE_CCH:
+        return ''
+    return buf.value

@@ -88,13 +88,13 @@ def isolated_client_modules():
 
 
 class FakeSend:
-    """替换 core.tools.tsf_input.send_text 的假发送 (记录调用, 返回固定结果)"""
+    """替换 core.tools.tsf_input.send_text_auto 的假发送 (记录调用, 返回固定结果)"""
 
     def __init__(self, result):
         self.result = result
         self.calls = []
 
-    def __call__(self, text, timeout_ms=1500):
+    def __call__(self, text, dll_path=None, timeout_ms=1500):
         self.calls.append(text)
         return self.result
 
@@ -172,7 +172,7 @@ class DisabledModeTests(RouteTestBase):
             with self.subTest(mode=mode):
                 ClientConfig.output_mode = mode
                 dead = MagicMock(side_effect=AssertionError('disabled branch must not call native'))
-                with patch.object(tsf_input, 'send_text', dead):
+                with patch.object(tsf_input, 'send_text_auto', dead):
                     asyncio.run(TextOutput().output('你好'))
                 dead.assert_not_called()
                 self.mock_paste.assert_called_once()          # Config.paste=True 默认
@@ -182,7 +182,7 @@ class DisabledModeTests(RouteTestBase):
     def test_native_wrapper_disabled_short_circuits(self):
         ClientConfig.output_mode = 'clipboard'
         dead = MagicMock(side_effect=AssertionError('disabled branch must not call native'))
-        with patch.object(tsf_input, 'send_text', dead):
+        with patch.object(tsf_input, 'send_text_auto', dead):
             ok = asyncio.run(native_tsf.output_native('你好'))
         self.assertFalse(ok)
         dead.assert_not_called()
@@ -190,7 +190,7 @@ class DisabledModeTests(RouteTestBase):
     def test_clipboard_mode_typing_path_unchanged(self):
         ClientConfig.output_mode = 'clipboard'
         dead = MagicMock(side_effect=AssertionError('disabled branch must not call native'))
-        with patch.object(tsf_input, 'send_text', dead):
+        with patch.object(tsf_input, 'send_text_auto', dead):
             asyncio.run(TextOutput().output('你好', paste=False))
         dead.assert_not_called()
         self.mock_write.assert_called_once_with('你好')
@@ -203,7 +203,7 @@ class NativeSuccessTests(RouteTestBase):
     def test_output_routes_once_via_native(self):
         ClientConfig.output_mode = 'tsf'
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             asyncio.run(TextOutput().output('你好'))
         self.assertEqual(fake.calls, ['你好'])
         self.mock_paste.assert_not_called()
@@ -212,7 +212,7 @@ class NativeSuccessTests(RouteTestBase):
     def test_typing_path_also_routes_native(self):
         ClientConfig.output_mode = 'tsf'
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             asyncio.run(TextOutput().output('你好', paste=False))
         self.assertEqual(fake.calls, ['你好'])
         self.mock_write.assert_not_called()
@@ -228,7 +228,7 @@ class NativeSuccessTests(RouteTestBase):
         cp._memo = ('。', 777, 199.0)                 # 上一句同窗口删了句号
         cp.arm()
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             asyncio.run(TextOutput().output('第二句'))
             asyncio.run(TextOutput().output('第三句'))
         self.assertEqual(fake.calls, ['。第二句', '第三句'])   # 前缀只用一次
@@ -246,7 +246,7 @@ class NativeFailureTests(RouteTestBase):
                 ClientConfig.output_mode = 'tsf'
                 fake = FakeSend((status, 'detail-x'))
                 hint = MagicMock()
-                with (patch.object(tsf_input, 'send_text', fake),
+                with (patch.object(tsf_input, 'send_text_auto', fake),
                       patch('core.client.ui.recording_toast.hint_capsule', hint)):
                     asyncio.run(TextOutput().output('你好'))
                 self.assertEqual(fake.calls, ['你好'])            # 恰好一次, 无重试
@@ -261,7 +261,7 @@ class NativeFailureTests(RouteTestBase):
     def test_native_wrapper_returns_false_on_failure(self):
         ClientConfig.output_mode = 'tsf'
         fake = FakeSend((tsf_input.ST_FOCUS_MISMATCH, 'x'))
-        with (patch.object(tsf_input, 'send_text', fake),
+        with (patch.object(tsf_input, 'send_text_auto', fake),
               patch('core.client.ui.recording_toast.hint_capsule', MagicMock())):
             ok = asyncio.run(native_tsf.output_native('你好'))
         self.assertFalse(ok)
@@ -271,7 +271,7 @@ class NativeFailureTests(RouteTestBase):
         ClientConfig.output_mode = 'tsf'
         boom = MagicMock(side_effect=OSError('win32 blew up'))
         hint = MagicMock()
-        with (patch.object(tsf_input, 'send_text', boom),
+        with (patch.object(tsf_input, 'send_text_auto', boom),
               patch('core.client.ui.recording_toast.hint_capsule', hint)):
             ok = asyncio.run(native_tsf.output_native('你好'))
         self.assertFalse(ok)
@@ -288,7 +288,7 @@ class LlmRoutingTests(RouteTestBase):
         ClientConfig.output_mode = 'tsf'
         handler = _FakeHandler()
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             result = asyncio.run(lot.handle_typing_mode(
                 handler, '原始文本', paste=False, matched_hotwords=[],
                 role_config=_FakeRole(), content='原始文本'))
@@ -302,7 +302,7 @@ class LlmRoutingTests(RouteTestBase):
         ClientConfig.output_mode = 'tsf'
         handler = _FakeHandler()
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             asyncio.run(lot.handle_typing_mode(
                 handler, '原始文本', paste=True, matched_hotwords=[],
                 role_config=_FakeRole(), content='原始文本'))
@@ -313,7 +313,7 @@ class LlmRoutingTests(RouteTestBase):
         """LLM 透传/降级的共用出口 output_text 在 tsf 模式也走原生一次"""
         ClientConfig.output_mode = 'tsf'
         fake = FakeSend((tsf_input.ST_INSERTED, ''))
-        with patch.object(tsf_input, 'send_text', fake):
+        with patch.object(tsf_input, 'send_text_auto', fake):
             asyncio.run(lot.output_text('透传文本', paste=True))
         self.assertEqual(fake.calls, ['透传文本'])
         self.mock_paste.assert_not_called()
@@ -323,7 +323,7 @@ class LlmRoutingTests(RouteTestBase):
         ClientConfig.output_mode = 'clipboard'
         handler = _FakeHandler()
         dead = MagicMock(side_effect=AssertionError('clipboard mode must not call native'))
-        with patch.object(tsf_input, 'send_text', dead):
+        with patch.object(tsf_input, 'send_text_auto', dead):
             result = asyncio.run(lot.handle_typing_mode(
                 handler, '原始文本', paste=False, matched_hotwords=[],
                 role_config=_FakeRole(), content='原始文本'))
@@ -336,7 +336,7 @@ class LlmRoutingTests(RouteTestBase):
         ClientConfig.output_mode = 'clipboard'
         handler = _FakeHandler()
         dead = MagicMock(side_effect=AssertionError('clipboard mode must not call native'))
-        with patch.object(tsf_input, 'send_text', dead):
+        with patch.object(tsf_input, 'send_text_auto', dead):
             asyncio.run(lot.handle_typing_mode(
                 handler, '原始文本', paste=True, matched_hotwords=[],
                 role_config=_FakeRole(), content='原始文本'))

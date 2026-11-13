@@ -2,7 +2,7 @@
 运行: python tests/test_tsf_input.py 或 pytest tests/test_tsf_input.py"""
 import unittest
 from contextlib import contextmanager
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import importlib.util
 from pathlib import Path
@@ -182,6 +182,104 @@ class ResultTests(unittest.TestCase):
             ti.platform.system = real_system
             ti._api = real_api
         self.assertEqual(status, ti.ST_UNAVAILABLE)
+
+
+class AutoSwitchTests(unittest.TestCase):
+    """send_text_auto: 前台无桥时临时切换输入法, finally 无条件还原; 读不到输入法拒发"""
+
+    def setUp(self):
+        self.old_wait, self.old_poll = ti.BRIDGE_WAIT_SEC, ti.BRIDGE_POLL_SEC
+        ti.BRIDGE_WAIT_SEC, ti.BRIDGE_POLL_SEC = 0.05, 0.005
+        self.addCleanup(setattr, ti, 'BRIDGE_WAIT_SEC', self.old_wait)
+        self.addCleanup(setattr, ti, 'BRIDGE_POLL_SEC', self.old_poll)
+
+    def _fake_prof(self, captured, switch_calls):
+        class FakeProf:
+            def TsfProfileCapture(_self, buf, cch):
+                if not captured:
+                    return 0
+                buf.value = captured
+                return min(len(captured), cch - 1)
+
+            def TsfProfileSwitch(_self, text):
+                switch_calls.append(text)
+                fake.bridges.append(bridge())
+                return 0
+
+        fake = FakeWin32(bridges=[])
+        return fake, FakeProf()
+
+    def _run(self, fake, prof, text='你好'):
+        with (patch.object(ti, '_profile_api', return_value=prof),
+              patch.object(ti, '_load_api', return_value=fake)):
+            return ti.send_text_auto(text, 'C:/fake/CapsWriterTsf.dll')
+
+    def test_bridge_already_present_skips_switch(self):
+        switch_calls = []
+        fake, prof = self._fake_prof('X|Y|2052', switch_calls)
+        fake.bridges.append(bridge())
+        with patch.object(ti, 'send_text', return_value=(ti.ST_INSERTED, '')) as send:
+            status, _ = self._run(fake, prof)
+        self.assertEqual(status, ti.ST_INSERTED)
+        send.assert_called_once()
+        self.assertEqual(switch_calls, [])          # 已有桥: 不切换也不还原
+
+    def test_capture_failure_rejects_without_switch(self):
+        switch_calls = []
+        fake, prof = self._fake_prof('', switch_calls)
+        status, detail = self._run(fake, prof)
+        self.assertEqual(status, ti.ST_NO_BRIDGE)
+        self.assertIn('GetActiveProfile', detail)
+        self.assertEqual(switch_calls, [])
+
+    def test_switch_failure_rejects_and_skips_restore(self):
+        import ctypes
+
+        switch_calls = []
+
+        class FailProf:
+            def TsfProfileCapture(_self, buf, cch):
+                buf.value = '{W}|{P}|2052'
+                return 15
+
+            def TsfProfileSwitch(_self, text):
+                switch_calls.append(text)
+                return -2147467259 if text == ti.OUR_PROFILE else 0  # E_FAIL
+
+        fake = FakeWin32(bridges=[])
+        with patch.object(ti, '_profile_api', return_value=FailProf()):
+            status, detail = ti.send_text_auto('你好', 'C:/fake.dll')
+        self.assertEqual(status, ti.ST_NO_BRIDGE)
+        self.assertIn('切换输入法失败', detail)
+        self.assertEqual(switch_calls, [ti.OUR_PROFILE])   # 切换失败: 没有第二次还原调用
+
+    def test_send_timeout_still_restores(self):
+        order = []
+        fake = FakeWin32(bridges=[])
+        prof = MagicMock()
+        prof.TsfProfileCapture.side_effect = lambda buf, cch: (setattr(buf, 'value', '{W}|{P}|2052'), 15)[1]
+        prof.TsfProfileSwitch.side_effect = lambda text: (
+            order.append(text), fake.bridges.append(bridge()) if text == ti.OUR_PROFILE else None, 0)[2]
+        with (mount(fake),
+              patch.object(ti, '_profile_api', return_value=prof),
+              patch.object(ti, 'send_text', return_value=(ti.ST_UNKNOWN, 'timeout'))):
+            status, _ = ti.send_text_auto('你好', 'C:/fake.dll')
+        self.assertEqual(status, ti.ST_UNKNOWN)
+        self.assertEqual(order, [ti.OUR_PROFILE, '{W}|{P}|2052'])   # 切换 → 还原
+
+    def test_captured_own_profile_skips_restore(self):
+        order = []
+        fake = FakeWin32(bridges=[])
+        prof = MagicMock()
+        prof.TsfProfileCapture.side_effect = lambda buf, cch: (setattr(buf, 'value', ti.OUR_PROFILE), 92)[1]
+        prof.TsfProfileSwitch.side_effect = lambda text: (order.append(text), 0)[1]
+        fake.bridges.append(bridge())      # 本来就是我们: 桥已在, 不切换
+        with (patch.object(ti, '_profile_api', return_value=prof),
+              patch.object(ti, '_load_api', return_value=fake),
+              patch.object(ti, 'send_text', return_value=(ti.ST_INSERTED, ''))):
+            status, _ = ti.send_text_auto('你好', 'C:/fake.dll')
+        self.assertEqual(status, ti.ST_INSERTED)
+        self.assertEqual(order, [])        # 不切换也就无所谓还原
 
 
 class PureGuardTests(unittest.TestCase):

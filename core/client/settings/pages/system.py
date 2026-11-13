@@ -54,10 +54,9 @@ def _output_mode_card(parent, pal, ctx):
         mode = 'clipboard'
     ChoiceGroup(c.body, pal, [{'key': k, 'title': t, 'detail': d} for k, t, d in OUTPUT_MODE_ITEMS],
                 mode, lambda k: ctx.do('set_output_mode', k)).pack(fill='x')
-    tk.Label(c.body, text=_nb('原生直插需先在 Windows 设置 > 时间和语言 > 语言和输入法里添加并选中「CapsWriter Voice」'
-              '输入法（这里不做输入法注册，也不改默认输入法），且当前前台应用加载了该输入法才能直插。'
-              '找不到服务、焦点变化、超时或含换行/控制字符的那一句不会上屏，也不会改用剪贴板，'
-              '完整文本保留在历史记录里。'),
+    tk.Label(c.body, text=_nb('原生直插会自动临时切换前台输入法（发送后立即还原，不改默认输入法）。'
+              '若读不到当前输入法、焦点变化、超时或含换行/控制字符，那一句不会上屏，'
+              '也不会改用剪贴板，完整文本保留在历史记录里。'),
              font=font(9), bg=pal.surface, fg=pal.muted, wraplength=520, justify='left').pack(anchor='w', pady=(8, 0))
 
 

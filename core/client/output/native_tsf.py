@@ -55,7 +55,10 @@ async def output_native(text: str) -> bool:
         return False
     try:
         from core.tools import tsf_input
-        status, detail = await to_thread(tsf_input.send_text, text)
+        from pathlib import Path
+        import config_client
+        dll_path = str(Path(config_client.BASE_DIR) / 'native' / 'tsf' / 'CapsWriterTsf.dll')
+        status, detail = await to_thread(tsf_input.send_text_auto, text, dll_path)
     except Exception as e:
         # 窄边界: Win32/ctypes/传输层的意外异常按「结果未确认」处理, 不重试不回退,
         # 也不让异常逃出去跳过上层的历史记录

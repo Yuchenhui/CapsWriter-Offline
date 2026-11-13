@@ -2,3 +2,5 @@ LIBRARY CapsWriterTsf
 EXPORTS
     DllGetClassObject PRIVATE
     DllCanUnloadNow PRIVATE
+    TsfProfileCapture PRIVATE
+    TsfProfileSwitch PRIVATE

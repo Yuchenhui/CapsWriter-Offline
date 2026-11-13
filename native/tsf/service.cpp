@@ -244,3 +244,61 @@ STDAPI DllCanUnloadNow() {
     UnregisterClassW(kBridgeClass, instance);
     return S_OK;
 }
+
+// ---- 输入法临时切换导出: 客户端输出前自动切换、发完自动还原, 不改默认输入法 ----
+static HRESULT profileMgrInstance(ITfInputProcessorProfileMgr** out) {
+    ITfInputProcessorProfiles* profiles = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+        IID_ITfInputProcessorProfiles, reinterpret_cast<void**>(&profiles));
+    if (FAILED(hr)) return hr;
+    hr = profiles->QueryInterface(IID_ITfInputProcessorProfileMgr, reinterpret_cast<void**>(out));
+    profiles->Release();
+    return hr;
+}
+
+extern "C" __declspec(dllexport) unsigned __stdcall TsfProfileCapture(wchar_t* buf, unsigned cch) {
+    if (!buf || !cch) return 0;
+    buf[0] = 0;
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(init) && init != RPC_E_CHANGED_MODE) return 0;
+    unsigned written = 0;
+    ITfInputProcessorProfileMgr* mgr = nullptr;
+    if (SUCCEEDED(profileMgrInstance(&mgr))) {
+        TF_INPUTPROCESSORPROFILE profile{};
+        // 只还原同类型的文本服务; 当前激活的是纯键盘布局时返回 0, 客户端拒发以免无法还原
+        if (SUCCEEDED(mgr->GetActiveProfile(GUID_TFCAT_TIP_KEYBOARD, &profile)) &&
+            profile.dwProfileType == TF_PROFILETYPE_INPUTPROCESSOR) {
+            wchar_t clsidText[64]{}; wchar_t guidText[64]{};
+            StringFromGUID2(profile.clsid, clsidText, 64);
+            StringFromGUID2(profile.guidProfile, guidText, 64);
+            int n = _snwprintf_s(buf, cch, _TRUNCATE, L"%s|%s|%u", clsidText, guidText,
+                static_cast<unsigned>(profile.langid));
+            if (n > 0) written = static_cast<unsigned>(n);
+        }
+        mgr->Release();
+    }
+    if (init != RPC_E_CHANGED_MODE) CoUninitialize();
+    return written;
+}
+
+extern "C" __declspec(dllexport) HRESULT __stdcall TsfProfileSwitch(const wchar_t* text) {
+    if (!text) return E_POINTER;
+    wchar_t clsidText[64]{}; wchar_t guidText[64]{}; unsigned langid = 0;
+    if (swscanf_s(text, L"%63[^|]|%63[^|]|%u",
+        clsidText, static_cast<unsigned>(_countof(clsidText)),
+        guidText, static_cast<unsigned>(_countof(guidText)), &langid) != 3) return E_INVALIDARG;
+    CLSID clsid{}; GUID guidProfile{};
+    if (FAILED(CLSIDFromString(clsidText, &clsid)) || FAILED(CLSIDFromString(guidText, &guidProfile)))
+        return E_INVALIDARG;
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(init) && init != RPC_E_CHANGED_MODE) return init;
+    HRESULT hr = E_FAIL;
+    ITfInputProcessorProfileMgr* mgr = nullptr;
+    if (SUCCEEDED(hr = profileMgrInstance(&mgr))) {
+        hr = mgr->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, static_cast<LANGID>(langid),
+            clsid, guidProfile, nullptr, TF_IPPMF_FORSESSION | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
+        mgr->Release();
+    }
+    if (init != RPC_E_CHANGED_MODE) CoUninitialize();
+    return hr;
+}
